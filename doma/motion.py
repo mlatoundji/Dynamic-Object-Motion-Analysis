@@ -34,7 +34,11 @@ def _otsu_threshold(mag: np.ndarray) -> float:
     if mmax <= 1e-6:
         return 0.0
     mag_u8 = np.clip((mag / mmax) * 255.0, 0, 255).astype(np.uint8)
-    _, thr_u8 = cv2.threshold(mag_u8, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    # OpenCV returns (threshold_value, thresholded_image).
+    # With Otsu, we need the threshold value.
+    thr_u8, _ = cv2.threshold(
+        mag_u8, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
+    )
     return (float(thr_u8) / 255.0) * mmax
 
 
@@ -64,7 +68,9 @@ def choose_threshold(
 
 def largest_connected_component(mask: np.ndarray) -> np.ndarray:
     mask_u8 = (mask.astype(np.uint8) * 255)
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(
+        mask_u8, connectivity=8
+    )
     if n <= 1:
         return mask.astype(bool)
     # Skip label 0 (background)
@@ -81,7 +87,9 @@ def refine_motion_mask(mask: np.ndarray) -> np.ndarray:
     return (mask_u8 > 0)
 
 
-def subtract_global_motion(flow: np.ndarray, bg_mask: np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
+def subtract_global_motion(
+    flow: np.ndarray, bg_mask: np.ndarray | None
+) -> tuple[np.ndarray, np.ndarray]:
     fx = flow[..., 0].astype(np.float32)
     fy = flow[..., 1].astype(np.float32)
 
@@ -98,7 +106,9 @@ def subtract_global_motion(flow: np.ndarray, bg_mask: np.ndarray | None) -> tupl
     return corrected, np.array([u0, v0], dtype=np.float32)
 
 
-def circular_mean_angle_rad(ang: np.ndarray, weights: np.ndarray | None = None) -> tuple[float, float]:
+def circular_mean_angle_rad(
+    ang: np.ndarray, weights: np.ndarray | None = None
+) -> tuple[float, float]:
     """
     Returns (mean_angle_rad, concentration_R).
     R in [0,1] measures directional concentration.
@@ -127,13 +137,17 @@ def compute_motion_stats(
     subtract_bg: bool = True,
 ) -> tuple[MotionStats, np.ndarray]:
     """
-    Returns (stats, motion_mask) for the given flow field (typically already cropped to ROI/mask).
+    Returns (stats, motion_mask) for the given flow field
+    (typically already cropped to ROI/mask).
     """
     mag, ang = magnitude_angle(flow)
-    thr = choose_threshold(mag, method=threshold_method, fixed_value=fixed_threshold)
+    thr = choose_threshold(
+        mag, method=threshold_method, fixed_value=fixed_threshold
+    )
     motion = mag > thr
     motion = refine_motion_mask(motion)
-    motion = largest_connected_component(motion) if int(np.count_nonzero(motion)) > 0 else motion
+    if int(np.count_nonzero(motion)) > 0:
+        motion = largest_connected_component(motion)
 
     if subtract_bg:
         bg_mask = ~motion
@@ -141,7 +155,8 @@ def compute_motion_stats(
         mag, ang = magnitude_angle(flow2)
         motion = mag > thr
         motion = refine_motion_mask(motion)
-        motion = largest_connected_component(motion) if int(np.count_nonzero(motion)) > 0 else motion
+        if int(np.count_nonzero(motion)) > 0:
+            motion = largest_connected_component(motion)
         flow = flow2
 
     n = int(np.count_nonzero(motion))
@@ -176,9 +191,17 @@ def compute_motion_stats(
 
 
 def angle_to_cardinal(angle_deg: float) -> str:
-    # OpenCV/cartesian convention: 0° = +x (right), increasing clockwise if using image y down.
-    dirs = ["Est", "Sud-Est", "Sud", "Sud-Ouest", "Ouest", "Nord-Ouest", "Nord", "Nord-Est"]
+    # OpenCV/cartesian convention: 0° = +x (right).
+    # In image coordinates, y points down.
+    dirs = [
+        "Est",
+        "Sud-Est",
+        "Sud",
+        "Sud-Ouest",
+        "Ouest",
+        "Nord-Ouest",
+        "Nord",
+        "Nord-Est",
+    ]
     idx = int(((float(angle_deg) + 22.5) / 45.0)) % 8
     return dirs[idx]
-
-
