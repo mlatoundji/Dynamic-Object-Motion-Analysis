@@ -1,0 +1,21 @@
+{
+  "settings_version": "0.0.6",
+  "datasets_dir": "/Users/albert/Desktop/cv-optical-flow/datasets",
+  "weights_dir": "/Users/albert/Desktop/cv-optical-flow/weights",
+  "runs_dir": "/Users/albert/Desktop/cv-optical-flow/runs",
+  "uuid": "4caefac87089df0fa85716c68e2dfb686473091ca94c4e027280dff153c85548",
+  "sync": true,
+  "api_key": "",
+  "openai_api_key": "",
+  "clearml": true,
+  "comet": true,
+  "dvc": true,
+  "hub": true,
+  "mlflow": true,
+  "neptune": true,
+  "raytune": true,
+  "tensorboard": false,
+  "wandb": false,
+  "vscode_msg": true,
+  "openvino_msg": true
+}

@@ -1,0 +1,184 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\title{Real-Time Hand and Finger Tracking\\with Optical Flow Interpolation}
+\author{Project Report}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report describes a real-time hand and finger gesture tracking system that combines object detection (YOLO), hand landmark estimation (MediaPipe), and dense optical flow (Farneback). The system supports two hands with 21 landmarks each, records keypoint trajectories, and uses optical flow both to smooth trajectories and to interpolate when object detection is run at a lower rate---simulating a slow detector while maintaining real-time responsiveness. Observations and conclusions are summarized.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%------------------------------------------------------------------------------
+\section{Introduction}
+%------------------------------------------------------------------------------
+
+Real-time hand and finger tracking from a single camera is useful for human--computer interaction, sign language recognition, and gesture control. Object detectors and hand landmark models can be accurate but computationally expensive; running them at full frame rate may not be feasible on all devices. This project implements a prototype that:
+
+\begin{itemize}
+  \item Detects and tracks up to two hands with 21 landmarks per hand (wrist, fingers, joints) using MediaPipe, with optional YOLO-based hand bounding boxes.
+  \item Records and visualizes the movement trajectory of each keypoint over the last 60 frames.
+  \item Uses dense optical flow (Farneback) to smooth trajectories and, in an ``interpolation mode,'' to maintain real-time motion between sparse detection updates---optical flow provides real-time updates while detection provides periodic correction.
+\end{itemize}
+
+The goal is to demonstrate that optical flow can effectively interpolate between slow object-detection frames, reducing the need for running the detector every frame.
+
+%------------------------------------------------------------------------------
+\section{Theoretical Basis}
+%------------------------------------------------------------------------------
+
+\subsection{Optical Flow}
+
+Optical flow estimates the apparent motion of pixels between two consecutive frames under the assumption that intensity is conserved over time. For a pixel \(\mathbf{x} = (x, y)\) at time \(t\), the brightness constancy constraint is
+\begin{equation}
+  I(x, y, t) = I(x + \Delta x, y + \Delta y, t + \Delta t).
+\end{equation}
+Linearizing and dividing by \(\Delta t\) yields
+\begin{equation}
+  I_x u + I_y v + I_t = 0,
+\end{equation}
+where \(u = dx/dt\), \(v = dy/dt\) are the horizontal and vertical flow components, and \(I_x, I_y, I_t\) are spatial and temporal derivatives.
+
+\paragraph{Farneback method.}
+The implementation uses the Farneback algorithm~[1], which computes \emph{dense} optical flow (a flow vector at every pixel) by fitting polynomial expansion models in local neighborhoods and solving for the displacement between frames. The OpenCV implementation \texttt{cv2.calcOpticalFlowFarneback} is used with parameters: pyramid scale \(0.5\), 3 levels, window size 15, 3 iterations, polynomial degree \(n=5\), and \(\sigma=1.2\). This yields flow fields \(\texttt{flow\_x}\) and \(\texttt{flow\_y}\) of the same size as the input grayscale frames.
+
+\subsection{Object Detection and Hand Landmarks}
+
+\paragraph{YOLO (optional).}
+YOLO-style models~[2] perform single-shot object detection. When a hand-specific YOLO model is provided (e.g., from Roboflow or Hugging Face), it is used to propose hand bounding boxes. The implementation filters detections by class names containing ``hand'' and uses CUDA or Apple MPS when available for acceleration.
+
+\paragraph{MediaPipe.}
+MediaPipe provides hand landmark models that output 21 keypoints per hand (wrist, thumb, index, middle, ring, pinky, and joints) in normalized coordinates, plus a handedness label (Left/Right). The project uses the Tasks API (Hand Landmarker) when available, with a fallback to the legacy \texttt{solutions.hands} API for older MediaPipe versions (e.g., on macOS where the Tasks API may fail). Detections are merged: YOLO boxes (when available) can guide cropping; landmark positions and handedness always come from MediaPipe.
+
+\subsection{Trajectory Smoothing and Interpolation}
+
+Let \(\mathbf{p}_{\mathrm{det}}\) be the detected keypoint position and \(\mathbf{p}_{\mathrm{prev}}\) the previous trajectory point. The flow at \(\mathbf{p}_{\mathrm{prev}}\) is sampled (with a small median filter for robustness). The flow-predicted position is \(\mathbf{p}_{\mathrm{pred}} = \mathbf{p}_{\mathrm{prev}} + \mathbf{f}(\mathbf{p}_{\mathrm{prev}})\). A smoothed point is
+\begin{equation}
+  \mathbf{p}_{\mathrm{smooth}} = \alpha\, \mathbf{p}_{\mathrm{det}} + (1-\alpha)\, \mathbf{p}_{\mathrm{pred}},
+\end{equation}
+with \(\alpha \approx 0.92\) so that detection slightly dominates and drift is limited. If the smoothed point drifts more than 40 pixels from the detection, it is re-anchored to \(\mathbf{p}_{\mathrm{det}}\).
+
+In \emph{interpolation mode}, the detector is run only every \(N\) frames (e.g., \(N=5\) or \(10\)). On those frames, trajectories are updated with the detected keypoints (correction). On other frames, trajectories are updated using only the flow: \(\mathbf{p}_{\mathrm{new}} = \mathbf{p}_{\mathrm{prev}} + \mathbf{f}(\mathbf{p}_{\mathrm{prev}})\). Thus optical flow provides real-time interpolation and detection provides periodic correction.
+
+%------------------------------------------------------------------------------
+\section{Methods}
+%------------------------------------------------------------------------------
+
+\subsection{System Architecture}
+
+The system consists of three main modules:
+
+\begin{itemize}
+  \item \textbf{hand\_tracker.py}: Loads YOLO (optional) and MediaPipe Hand Landmarker (or legacy Hands). For each frame, optionally runs YOLO for hand boxes, then runs MediaPipe on the frame (or on crops) to get 21 landmarks and handedness per hand. Merges results and draws bounding boxes and skeleton.
+  \item \textbf{optical\_flow.py}: Computes Farneback flow between consecutive grayscale frames; converts flow to an RGB colormap (direction = hue, magnitude = value); overlays flow and motion arrows on the frame, optionally restricted to hand bounding boxes.
+  \item \textbf{main.py}: Captures video from the camera, runs the tracker, maintains two trajectory buffers (raw detection-only and flow-smoothed), and implements interpolation mode (run detector every \(N\) frames, flow every frame). Renders trajectories (cyan/magenta for left/right), status text, and key bindings.
+\end{itemize}
+
+\subsection{Pipeline}
+
+\begin{enumerate}
+  \item Read a new frame and flip it horizontally for a mirror view.
+  \item \textbf{Normal mode}: Run hand detection (MediaPipe, and YOLO if configured) every frame. \textbf{Interpolation mode}: Run detection only when \(\texttt{frame\_count} \bmod N = 0\); otherwise use an empty detection list.
+  \item Compute dense optical flow between the previous and current grayscale frames when optical flow overlay is enabled or when in interpolation mode.
+  \item Update trajectories:
+  \begin{itemize}
+    \item Normal mode, flow off: append detected keypoint positions to the raw trajectory buffer.
+    \item Normal mode, flow on: update raw buffer with detection only; update flow-smoothed buffer with the blend of detection and flow-predicted position (with re-anchoring).
+    \item Interpolation mode: if detections are present, append detected positions (correction); for hands not in the detection set, append \(\mathbf{p}_{\mathrm{prev}} + \mathbf{f}(\mathbf{p}_{\mathrm{prev}})\) (interpolation). Clear trajectories for hands that were not detected.
+  \end{itemize}
+  \item Draw hand boxes and landmarks, trajectory polylines (per keypoint, last 60 points), and optionally the flow overlay inside hand boxes. Display status (mode, hand count, key hints).
+\end{enumerate}
+
+\subsection{Parameters}
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{llp{6cm}}
+    \toprule
+    Parameter & Value & Description \\
+    \midrule
+    Trajectory length & 60 & Frames kept per keypoint \\
+    Flow smooth \(\alpha\) & 0.92 & Weight on detection in smoothing \\
+    Max drift & 40 px & Re-anchor threshold \\
+    Detection interval \(N\) & 5 (configurable) & Frames between detector runs in interp mode \\
+    Farneback \texttt{pyr\_scale} & 0.5 & Pyramid scale \\
+    Farneback \texttt{winsize} & 15 & Averaging window size \\
+    \bottomrule
+  \end{tabular}
+  \caption{Main parameters used in the implementation.}
+\end{table}
+
+%------------------------------------------------------------------------------
+\section{Results and Observations}
+%------------------------------------------------------------------------------
+
+\subsection{Trajectory Visualization}
+
+\begin{itemize}
+  \item With optical flow disabled, trajectories follow the detected landmarks directly. Jitter is visible when the hand is relatively still due to small variations in landmark positions.
+  \item With optical flow enabled (normal mode), the flow-smoothed trajectory (green) is visibly smoother than the detection-only trajectory (yellow), while still tracking the hand motion. The 60-frame history gives a clear motion trail for each of the 21 keypoints.
+  \item Left and right hands are distinguished by color (cyan and magenta) and by MediaPipe handedness; trajectories are stored separately per hand.
+\end{itemize}
+
+\subsection{Interpolation Mode (Slow Detection)}
+
+\begin{itemize}
+  \item When the detector is run only every \(N\) frames, the trajectory continues to move in real time on non-detection frames using optical flow. The trail does not ``freeze'' between detection updates.
+  \item When the detector runs again, the trajectory snaps to the detected positions (correction). Brief discontinuities can appear at correction instants if the flow has drifted; increasing the detection rate (smaller \(N\)) or using a blend at correction could reduce this.
+  \item The approach is effective for demonstrating that optical flow can maintain a plausible real-time trajectory when the detector is too slow to run every frame.
+\end{itemize}
+
+\subsection{Optical Flow Overlay}
+
+\begin{itemize}
+  \item Restricting the flow overlay to hand bounding boxes (with padding) keeps the visualization focused and reduces clutter. Motion direction is encoded as hue and magnitude as value in an HSV-based colormap; arrows indicate flow direction.
+  \item Flow computation (Farneback) is relatively fast compared with running YOLO and MediaPipe every frame, so interpolation mode remains real-time on typical hardware.
+\end{itemize}
+
+\subsection{Limitations}
+
+\begin{itemize}
+  \item Optical flow assumes brightness constancy and small displacements; fast motion or occlusions can cause drift. Re-anchoring and periodic detection help but do not eliminate drift in all cases.
+  \item When both hands are present and only one is detected on a given frame (e.g., partial occlusion), the non-detected hand's trajectory is still propagated by flow until the next detection; if that hand left the frame, the trail may persist until the next correction clears it.
+  \item MediaPipe performance and availability depend on the environment (e.g., macOS may require the legacy API).
+\end{itemize}
+
+%------------------------------------------------------------------------------
+\section{Conclusion}
+%------------------------------------------------------------------------------
+
+The project implements a real-time hand and finger tracking system that combines:
+
+\begin{enumerate}
+  \item \textbf{Object detection and hand landmarks}: Optional YOLO for hand boxes and MediaPipe for 21 keypoints per hand and handedness.
+  \item \textbf{Dense optical flow}: Farneback flow for smoothing trajectories and for interpolating between sparse detection frames.
+  \item \textbf{Two operating modes}: (a) Normal mode with optional flow-based smoothing and overlay; (b) interpolation mode where the detector runs every \(N\) frames and optical flow provides real-time updates between corrections.
+\end{enumerate}
+
+The theoretical basis (brightness constancy, Farneback dense flow, and detection-based correction) is implemented in a modular pipeline. Observations confirm that flow-smoothed trajectories reduce jitter and that interpolation mode keeps the trajectory moving in real time when the detector is deliberately run at a lower rate. The system is suitable as a prototype for gesture-based interfaces and for studying the trade-off between detection frequency and real-time responsiveness using optical flow.
+
+%------------------------------------------------------------------------------
+\section*{References}
+%------------------------------------------------------------------------------
+
+\begin{enumerate}
+  \item G. Farneback, ``Two-frame motion estimation based on polynomial expansion,'' in \textit{Scandinavian Conference on Image Analysis}, 2003.
+  \item J. Redmon et al., ``You only look once: Unified, real-time object detection,'' in \textit{CVPR}, 2016.
+  \item MediaPipe Hands: \href{https://developers.google.com/mediapipe/solutions/vision/hand_landmarker}{mediapipe/solutions/vision/hand\_landmarker}.
+  \item OpenCV: \texttt{cv2.calcOpticalFlowFarneback}.
+\end{enumerate}
+
+\end{document}
