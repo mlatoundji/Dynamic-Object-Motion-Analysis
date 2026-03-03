@@ -10,7 +10,137 @@ from ..detectors import MediaPipeHandsDetector, clip_bbox
 from ..flow import farneback
 from ..motion import compute_motion_stats
 from .timeseries import ResampleResult, resample_linear
-from .video import resize_keep_aspect
+from collections.abc import Iterable
+
+from .video import VideoFrame, resize_keep_aspect
+
+
+def extract_optflow_features_stream(
+    frames: Iterable[VideoFrame],
+    *,
+    cfg: OptFlowExtractConfig,
+) -> tuple[np.ndarray, dict[str, np.ndarray], np.ndarray, dict[str, Any]]:
+    """
+    Memory-safe optical-flow feature extraction for long videos.
+    `frames` should be an iterable of `VideoFrame`.
+    """
+    det = MediaPipeHandsDetector(
+        max_num_hands=cfg.max_num_hands,
+        min_detection_confidence=cfg.min_detection_confidence,
+        min_tracking_confidence=cfg.min_tracking_confidence,
+    )
+
+    t_ms: list[float] = []
+    avg: list[float] = []
+    mx: list[float] = []
+    ang_deg: list[float] = []
+    conc: list[float] = []
+    npx: list[int] = []
+    thr: list[float] = []
+    valid: list[bool] = []
+
+    prev_roi = None
+
+    for fr in frames:
+        frame = fr.bgr
+        t_ms.append(float(fr.t_ms))
+
+        bbox, mask = det.detect(frame)
+        if bbox is None:
+            prev_roi = None
+            avg.append(np.nan)
+            mx.append(np.nan)
+            ang_deg.append(np.nan)
+            conc.append(np.nan)
+            npx.append(0)
+            thr.append(np.nan)
+            valid.append(False)
+            continue
+
+        bbox = clip_bbox(bbox, width=frame.shape[1], height=frame.shape[0])
+        roi = frame[bbox.y : bbox.y + bbox.h, bbox.x : bbox.x + bbox.w]
+        roi = resize_keep_aspect(roi, size_hw=cfg.roi_size)
+        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+        roi_mask = None
+        if mask is not None:
+            m = mask[bbox.y : bbox.y + bbox.h, bbox.x : bbox.x + bbox.w].astype(np.uint8) * 255
+            roi_mask = resize_keep_aspect(m, size_hw=cfg.roi_size) > 0
+
+        if prev_roi is None:
+            prev_roi = roi_gray
+            avg.append(np.nan)
+            mx.append(np.nan)
+            ang_deg.append(np.nan)
+            conc.append(np.nan)
+            npx.append(0)
+            thr.append(np.nan)
+            valid.append(False)
+            continue
+
+        flow = farneback(prev_roi, roi_gray)
+        if roi_mask is not None:
+            flow = flow.copy()
+            flow[~roi_mask] = 0.0
+
+        stats, motion_mask = compute_motion_stats(
+            flow,
+            threshold_method=cfg.threshold_method,
+            fixed_threshold=cfg.fixed_threshold,
+            subtract_bg=cfg.subtract_bg,
+        )
+
+        avg.append(float(stats.avg_speed))
+        mx.append(float(stats.max_speed))
+        ang_deg.append(float(stats.dominant_angle_deg))
+        conc.append(float(stats.direction_concentration))
+        npx.append(int(stats.n_pixels))
+        thr.append(float(stats.threshold))
+        valid.append(bool(stats.avg_speed > 0 and int(np.count_nonzero(motion_mask)) > 0))
+
+        prev_roi = roi_gray
+
+    t = np.asarray(t_ms, dtype=np.float64)
+    avg_a = np.asarray(avg, dtype=np.float64)
+    mx_a = np.asarray(mx, dtype=np.float64)
+    ang_a = np.asarray(ang_deg, dtype=np.float64)
+    conc_a = np.asarray(conc, dtype=np.float64)
+    npx_a = np.asarray(npx, dtype=np.int32)
+    thr_a = np.asarray(thr, dtype=np.float64)
+
+    # Resample to regular grid: scalars via linear interpolation; angle via sin/cos to avoid wrap issues.
+    r_avg: ResampleResult = resample_linear(t, avg_a, dt_ms=cfg.dt_ms, axis_time=0)
+    r_mx: ResampleResult = resample_linear(t, mx_a, dt_ms=cfg.dt_ms, axis_time=0)
+    r_conc: ResampleResult = resample_linear(t, conc_a, dt_ms=cfg.dt_ms, axis_time=0)
+    r_thr: ResampleResult = resample_linear(t, thr_a, dt_ms=cfg.dt_ms, axis_time=0)
+
+    ang_rad = np.deg2rad(ang_a)
+    r_sin: ResampleResult = resample_linear(t, np.sin(ang_rad), dt_ms=cfg.dt_ms, axis_time=0)
+    r_cos: ResampleResult = resample_linear(t, np.cos(ang_rad), dt_ms=cfg.dt_ms, axis_time=0)
+    ang_out = (np.rad2deg(np.arctan2(r_sin.y, r_cos.y)) + 360.0) % 360.0
+
+    valid_out = r_avg.valid & r_mx.valid & r_conc.valid & r_thr.valid & r_sin.valid & r_cos.valid
+    r_npx: ResampleResult = resample_linear(t, npx_a.astype(np.float64), dt_ms=cfg.dt_ms, axis_time=0)
+    npx_out = np.where(valid_out & r_npx.valid, np.round(r_npx.y).astype(np.int32), 0)
+
+    feats: dict[str, np.ndarray] = {
+        "avg_speed": r_avg.y.astype(np.float32),
+        "max_speed": r_mx.y.astype(np.float32),
+        "dominant_angle_deg": ang_out.astype(np.float32),
+        "direction_concentration": r_conc.y.astype(np.float32),
+        "n_pixels": npx_out,
+        "threshold": r_thr.y.astype(np.float32),
+    }
+
+    meta: dict[str, Any] = {
+        "roi_size_hw": [int(cfg.roi_size[0]), int(cfg.roi_size[1])],
+        "threshold_method": str(cfg.threshold_method),
+        "fixed_threshold": float(cfg.fixed_threshold),
+        "subtract_bg": bool(cfg.subtract_bg),
+        "resample_dt_ms": float(cfg.dt_ms),
+    }
+
+    return r_avg.t_ms, feats, valid_out.astype(bool), meta
 
 
 @dataclass(frozen=True)

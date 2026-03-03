@@ -50,6 +50,15 @@ poetry install -E dataset -E hand
 poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand,jester --subset 50
 ```
 
+### IPN Hand (AVI)
+
+Si vos vidéos IPN sont en `.avi`, c’est OK (OpenCV). Exemple:
+
+```bash
+python scripts/datasets/make_ipn_index.py --raw data/raw/ipn_hand --glob "videos/**/*.avi" --split train --label unknown
+python scripts/datasets/split_index_csv.py --index data/raw/ipn_hand/index.csv --train 0.8 --val 0.1 --test 0.1 --seed 0 --stratify label
+```
+
 ### MS-ASL / WLASL (download)
 
 Prérequis:

@@ -18,24 +18,35 @@ Ce projet fournit un pipeline reproductible qui transforme des vidéos/frames en
 poetry install -E dataset -E hand
 ```
 
+### MediaPipe (important)
+
+Dans certains environnements (Windows notamment), `mediapipe` peut être fourni en mode **Tasks-only** (pas de `mediapipe.solutions`).  
+Le projet gère ce cas en téléchargeant automatiquement le modèle `hand_landmarker.task` dans `.mediapipe_models/` (si réseau disponible).
+
+URL modèle (référence): `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`
+
 ### 2) Placer les données brutes dans `data/raw/`
 
 #### IPN Hand
 
 - Télécharger et extraire IPN Hand (voir page officielle IPN Hand: `https://gibranbenitez.github.io/IPN_Hand/`).
 - Placer les vidéos sous:
-  - `data/raw/ipn_hand/videos/**/*.mp4`
+  - `data/raw/ipn_hand/videos/**/*.(avi|mp4)` (OpenCV lit les deux)
 - Option recommandé: créer `data/raw/ipn_hand/index.csv` (format contrôlé):
   - colonnes: `sample_id,split,label,video_path,source_uri`
-  - `video_path` peut être relatif à `data/raw/ipn_hand/` (ex: `videos/xx.mp4`)
+  - `video_path` peut être relatif à `data/raw/ipn_hand/` (ex: `videos/xx.avi`)
 
 Script d’aide:
 
 ```bash
-python scripts/datasets/make_ipn_index.py --raw data/raw/ipn_hand --glob "videos/**/*.mp4" --split train --label unknown
+python scripts/datasets/make_ipn_index.py --raw data/raw/ipn_hand --glob "videos/**/*.avi" --split train --label unknown
+python scripts/datasets/split_index_csv.py --index data/raw/ipn_hand/index.csv --train 0.8 --val 0.1 --test 0.1 --seed 0 --stratify label
 ```
 
 #### Jester (20BN-Jester)
+
+https://www.kaggle.com/datasets/toxicmender/20bn-jester?resource=download 
+
 
 Layout typique:
 - `data/raw/jester/train.csv`
@@ -73,6 +84,12 @@ python scripts/datasets/frames_dir_to_mp4.py data/raw/jester/20bn-jester-v1/<vid
 
 ```bash
 poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand,jester --subset 50
+```
+
+Pour debug/perf, tu peux limiter le nombre de frames par vidéo:
+
+```bash
+poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand --subset 1 --max-frames 200
 ```
 
 #### Build avec download (MS-ASL/WLASL)

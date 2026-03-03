@@ -6,14 +6,17 @@ from pathlib import Path
 from ..schema import SampleIndex
 
 
-def index_ipn_hand(raw_root: Path, cfg: dict, *, subset_limit: int = 0) -> list[SampleIndex]:
+def index_ipn_hand(
+    raw_root: Path, cfg: dict, *, subset_limit: int = 0
+) -> list[SampleIndex]:
     """
     IPN Hand is continuous; annotations vary by distribution.
 
     Supported minimal modes:
     - If `${raw_root}/ipn_hand/index.csv` exists, read it (preferred).
       Required columns: sample_id, split, label, video_path, source_uri
-    - Else, fall back to indexing any mp4 under `${raw_root}/ipn_hand/videos/**/*.mp4`
+    - Else, fall back to indexing any video under
+      `${raw_root}/ipn_hand/videos/**/*.(mp4|avi)`
       with label="unknown" and split="train".
     """
     base = raw_root / str(cfg.get("raw_dir", "ipn_hand"))
@@ -33,7 +36,11 @@ def index_ipn_hand(raw_root: Path, cfg: dict, *, subset_limit: int = 0) -> list[
                 source_uri = row.get("source_uri") or video_path
                 if not sample_id or not video_path:
                     continue
-                p = (base / video_path) if not Path(video_path).is_absolute() else Path(video_path)
+                p = (
+                    (base / video_path)
+                    if not Path(video_path).is_absolute()
+                    else Path(video_path)
+                )
                 if not p.exists():
                     continue
                 out.append(
@@ -49,6 +56,7 @@ def index_ipn_hand(raw_root: Path, cfg: dict, *, subset_limit: int = 0) -> list[
         return out
 
     vids = sorted((base / "videos").glob("**/*.mp4"))
+    vids += sorted((base / "videos").glob("**/*.avi"))
     for i, p in enumerate(vids):
         if subset_limit and i >= subset_limit:
             break

@@ -19,6 +19,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default="", help="Output processed root (defaults to config processed_root)")
     p.add_argument("--only", default="", help="Comma-separated dataset names to process (optional)")
     p.add_argument("--subset", type=int, default=0, help="Limit number of samples processed (debug)")
+    p.add_argument(
+        "--max-frames",
+        type=int,
+        default=0,
+        help="Limit frames per video (debug; 0 = full video)",
+    )
     p.add_argument("--overwrite", action="store_true", help="Overwrite existing artifacts")
     p.add_argument("--download", action="store_true", help="Download missing MS-ASL/WLASL videos via yt-dlp")
     args = p.parse_args(argv)
@@ -53,7 +59,16 @@ def main(argv: list[str] | None = None) -> int:
                 kept.append(s)
         samples = kept
 
-    build_dataset(cfg, samples=samples, out_dir=out_root, opts=BuildOptions(overwrite=args.overwrite, subset_limit=args.subset))
+    build_dataset(
+        cfg,
+        samples=samples,
+        out_dir=out_root,
+        opts=BuildOptions(
+            overwrite=args.overwrite,
+            subset_limit=args.subset,
+            max_frames=args.max_frames,
+        ),
+    )
     return 0
 
 

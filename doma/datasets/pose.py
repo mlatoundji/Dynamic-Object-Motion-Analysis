@@ -5,8 +5,11 @@ from typing import Any, Literal
 
 import numpy as np
 
-from ..detectors import BBox, MediaPipeHandsDetector, clip_bbox
+from ..detectors import MediaPipeHandsDetector, clip_bbox
 from .timeseries import ResampleResult, finite_diff, resample_linear
+from collections.abc import Iterable
+
+from .video import VideoFrame
 
 
 PoseBackend = Literal["hands", "holistic"]
@@ -39,7 +42,9 @@ def _rotation_matrix_z(theta: float) -> np.ndarray:
     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
 
 
-def _normalize_rotation(track_xyz: np.ndarray, landmarks_xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _normalize_rotation(
+    track_xyz: np.ndarray, landmarks_xyz: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Align the palm direction (wrist -> middle_mcp) to +x in the xy-plane.
     """
@@ -100,7 +105,11 @@ def extract_pose_hands(
         track[i] = pts[0]  # wrist as track point
         valid[i] = True
 
-        if cfg.spatial_origin == "first_wrist" and origin is None and np.all(np.isfinite(track[i])):
+        if (
+            cfg.spatial_origin == "first_wrist"
+            and origin is None
+            and np.all(np.isfinite(track[i]))
+        ):
             origin = track[i].copy()
 
     # Spatial normalization (constant origin per clip)
@@ -142,6 +151,12 @@ def extract_pose_holistic(
         import mediapipe as mp
     except Exception as e:  # pragma: no cover
         raise RuntimeError("MediaPipe requires extras: poetry install -E hand") from e
+    if not hasattr(mp, "solutions"):
+        raise RuntimeError(
+            "This environment provides MediaPipe Tasks only (no `mediapipe.solutions`). "
+            "Set `processing.mediapipe.backend: hands` in `configs/datasets.yaml`, "
+            "or install a MediaPipe build that includes `solutions`."
+        )
 
     hol = mp.solutions.holistic.Holistic(
         static_image_mode=False,
@@ -249,6 +264,98 @@ def extract_pose(
     if cfg.backend == "holistic":
         return extract_pose_holistic(frames_bgr, timestamps_ms, cfg=cfg)
     raise ValueError(f"Unknown backend: {cfg.backend}")
+
+
+def extract_pose_stream(
+    frames: Iterable[VideoFrame],
+    *,
+    cfg: PoseExtractConfig,
+) -> PoseExtractResult:
+    """
+    Memory-safe pose extraction for long videos.
+    `frames` should be an iterable of `VideoFrame`.
+    """
+    if cfg.backend != "hands":
+        raise RuntimeError(
+            "Streaming extractor currently supports `backend: hands` only. "
+            "Set `processing.mediapipe.backend: hands` in `configs/datasets.yaml`."
+        )
+
+    det = MediaPipeHandsDetector(
+        max_num_hands=cfg.max_num_hands,
+        min_detection_confidence=cfg.min_detection_confidence,
+        min_tracking_confidence=cfg.min_tracking_confidence,
+    )
+
+    t_ms: list[float] = []
+    bboxes_list: list[np.ndarray] = []
+    track_list: list[np.ndarray] = []
+    lms_list: list[np.ndarray] = []
+    valid_list: list[bool] = []
+
+    origin = None
+    for fr in frames:
+        frame = fr.bgr
+        t_ms.append(float(fr.t_ms))
+        bbox, _mask, lm_xyz = det.detect_with_landmarks(frame)
+        if bbox is None or lm_xyz is None:
+            bboxes_list.append(np.array([-1, -1, -1, -1], dtype=np.int32))
+            track_list.append(np.array([np.nan, np.nan, np.nan], dtype=np.float64))
+            lms_list.append(np.full((21, 3), np.nan, dtype=np.float64))
+            valid_list.append(False)
+            continue
+
+        bbox = clip_bbox(bbox, width=frame.shape[1], height=frame.shape[0])
+        bboxes_list.append(np.array([bbox.x, bbox.y, bbox.w, bbox.h], dtype=np.int32))
+
+        pts = lm_xyz.astype(np.float64)
+        lms_list.append(pts)
+        track_list.append(pts[0])
+        valid_list.append(True)
+
+        if (
+            cfg.spatial_origin == "first_wrist"
+            and origin is None
+            and np.all(np.isfinite(pts[0]))
+        ):
+            origin = pts[0].copy()
+
+    t_ms_arr = np.asarray(t_ms, dtype=np.float64)
+    bboxes = np.stack(bboxes_list, axis=0)
+    track = np.stack(track_list, axis=0)
+    lms = np.stack(lms_list, axis=0)
+    valid = np.asarray(valid_list, dtype=bool)
+
+    # Spatial normalization (constant origin per clip)
+    if cfg.spatial_origin == "first_wrist":
+        if origin is None:
+            origin = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+        track = track - origin.reshape(1, 3)
+        lms = lms - origin.reshape(1, 1, 3)
+    elif cfg.spatial_origin == "image_center":
+        origin = np.array([0.5, 0.5, 0.0], dtype=np.float64)
+        track = track - origin.reshape(1, 3)
+        lms = lms - origin.reshape(1, 1, 3)
+
+    if cfg.rotation_normalize:
+        track, lms = _normalize_rotation(track, lms)
+
+    meta: dict[str, Any] = {
+        "backend": "mediapipe_hands",
+        "track_point": "wrist",
+        "coord_system": "mediapipe_normalized",
+        "origin": (origin.tolist() if origin is not None else None),
+        "rotation_normalize": bool(cfg.rotation_normalize),
+        "spatial_origin": str(cfg.spatial_origin),
+    }
+    return PoseExtractResult(
+        t_ms=t_ms_arr,
+        bbox_xywh=bboxes,
+        track_xyz=track,
+        landmarks_xyz=lms,
+        valid=valid,
+        meta=meta,
+    )
 
 
 def build_pose_tensor(

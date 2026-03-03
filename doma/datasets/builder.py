@@ -10,8 +10,8 @@ import numpy as np
 
 from .config import DatasetsConfig
 from .manifest import sample_to_row, write_manifest_csv
-from .optflow import OptFlowExtractConfig, extract_optflow_features
-from .pose import PoseExtractConfig, build_pose_tensor, extract_pose
+from .optflow import OptFlowExtractConfig, extract_optflow_features_stream
+from .pose import PoseExtractConfig, build_pose_tensor, extract_pose_stream
 from .schema import OptFlowFeatures, PoseTensor, SampleIndex
 from .video import iter_frames_dir, iter_video_frames
 
@@ -20,6 +20,7 @@ from .video import iter_frames_dir, iter_video_frames
 class BuildOptions:
     overwrite: bool = False
     subset_limit: int = 0
+    max_frames: int = 0
 
 
 def build_dataset(
@@ -38,7 +39,13 @@ def build_dataset(
         if opts.subset_limit and n > opts.subset_limit:
             break
 
-        artifacts = process_sample(cfg, sample, out_dir=out_dir, overwrite=opts.overwrite)
+        artifacts = process_sample(
+            cfg,
+            sample,
+            out_dir=out_dir,
+            overwrite=opts.overwrite,
+            max_frames=opts.max_frames,
+        )
         manifest_rows.append(sample_to_row(sample, artifacts=artifacts))
 
     manifest_path = out_dir / "manifest.csv"
@@ -46,7 +53,14 @@ def build_dataset(
     return manifest_path
 
 
-def process_sample(cfg: DatasetsConfig, sample: SampleIndex, *, out_dir: Path, overwrite: bool) -> dict[str, str]:
+def process_sample(
+    cfg: DatasetsConfig,
+    sample: SampleIndex,
+    *,
+    out_dir: Path,
+    overwrite: bool,
+    max_frames: int = 0,
+) -> dict[str, str]:
     if sample.video_path is None:
         raise ValueError(f"sample has no video_path: {sample.sample_id}")
 
@@ -68,22 +82,18 @@ def process_sample(cfg: DatasetsConfig, sample: SampleIndex, *, out_dir: Path, o
     if not (need_pose or need_flow or need_quality):
         return _artifact_dict(pose_path, flow_path, quality_path)
 
-    frames: list[np.ndarray] = []
-    t_ms: list[float] = []
-    if vid_path.is_dir():
-        fps = float(sample.fps or 30.0)
-        for fr in iter_frames_dir(vid_path, fps=fps):
-            frames.append(fr.bgr)
-            t_ms.append(fr.t_ms)
-    else:
-        for fr in iter_video_frames(vid_path):
-            frames.append(fr.bgr)
-            t_ms.append(fr.t_ms)
-
-    if len(frames) < 2:
-        raise RuntimeError(f"Too few frames in {vid_path}")
-
-    t_ms_arr = np.asarray(t_ms, dtype=np.float64)
+    def _frame_iter():
+        count = 0
+        if vid_path.is_dir():
+            fps = float(sample.fps or 30.0)
+            it = iter_frames_dir(vid_path, fps=fps)
+        else:
+            it = iter_video_frames(vid_path)
+        for fr in it:
+            yield fr
+            count += 1
+            if max_frames and count >= max_frames:
+                break
 
     pose_meta: dict[str, Any] | None = None
     flow_meta: dict[str, Any] | None = None
@@ -99,7 +109,7 @@ def process_sample(cfg: DatasetsConfig, sample: SampleIndex, *, out_dir: Path, o
             min_detection_confidence=float(mp.get("min_detection_confidence", 0.5)),
             min_tracking_confidence=float(mp.get("min_tracking_confidence", 0.5)),
         )
-        raw_pose = extract_pose(frames, t_ms_arr, cfg=pose_cfg)
+        raw_pose = extract_pose_stream(_frame_iter(), cfg=pose_cfg)
         t_reg, pos, vel, acc, lms, valid, meta = build_pose_tensor(raw_pose, dt_ms=cfg.dt_ms)
         pose_valid = valid
         pose_meta = meta
@@ -122,7 +132,7 @@ def process_sample(cfg: DatasetsConfig, sample: SampleIndex, *, out_dir: Path, o
             min_detection_confidence=float(mp.get("min_detection_confidence", 0.5)),
             min_tracking_confidence=float(mp.get("min_tracking_confidence", 0.5)),
         )
-        t_reg, feats, valid, meta = extract_optflow_features(frames, t_ms_arr, cfg=flow_cfg)
+        t_reg, feats, valid, meta = extract_optflow_features_stream(_frame_iter(), cfg=flow_cfg)
         flow_valid = valid
         flow_meta = meta
         OptFlowFeatures(
