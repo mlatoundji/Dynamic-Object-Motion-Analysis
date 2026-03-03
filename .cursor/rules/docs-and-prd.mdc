@@ -1,0 +1,15 @@
+---
+description: Documentation rules for PRD/roadmap/architecture/specs
+globs: .docs/**/*.md docs/**/*.md README.md
+alwaysApply: false
+---
+
+# Docs / PRD / Roadmap
+
+## Keep docs aligned with code
+- When you change dataset schema or paths, update: `README.md`, `configs/datasets.yaml`, and any `docs/` guide.
+- Prefer small, verifiable instructions (exact commands, expected folders).
+
+## Reference the spec
+- The canonical intermediate tensor is `[t, pos(3), vel(3), acc(3)]` per timestep (spec §5.2).
+

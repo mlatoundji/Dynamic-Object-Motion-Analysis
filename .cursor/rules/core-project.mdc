@@ -1,0 +1,20 @@
+---
+description: DOMA core architecture, dataset schema, and repo conventions
+alwaysApply: true
+---
+
+# DOMA Core
+
+## Architecture (high level)
+- Pipeline: Frames → HandROI/Mask → OpticalFlowInROI → Filtering → MotionFeatures → Export
+- Dataset build: Raw datasets → Index → Decode → (Pose/Kinematics + OptFlowFeatures) → NPZ + `manifest.csv`
+
+## Canonical dataset artifacts (per sample)
+- `pose_tensor.npz`: `timestamps_ms`, `track_pos_xyz`, `track_vel_xyz`, `track_acc_xyz`, optional `landmarks_xyz`, `valid`
+- `optflow_features.npz`: `timestamps_ms`, `avg_speed`, `max_speed`, `dominant_angle_deg`, `direction_concentration`, `n_pixels`, `threshold`, `valid`
+- `quality.json`: coverage ratios + meta
+- `manifest.csv`: one row per sample pointing to artifacts
+
+## Repo rules
+- Never commit raw/processed datasets. Keep them under `data/` (gitignored).
+- Prefer deterministic builds: seedable scripts, explicit config in `configs/datasets.yaml`.

@@ -1,0 +1,23 @@
+---
+description: Synthetic generation (Blender/Unreal) conventions and export schema
+globs: synthetic/**/*.{py,md}
+alwaysApply: false
+---
+
+# Synthetic Data Generation
+
+## Required exports
+- **RGB** frames
+- **Segmentation** mask (pixel-perfect when possible)
+- **Joints/bones ground-truth** per frame (JSON/CSV)
+- (Optional) camera params (intrinsics/extrinsics)
+
+## Naming/layout
+- Use `seq_XXXXXX/` folders under a chosen `out/` root
+- Standard subfolders: `rgb/`, `mask/`, `joints/`, plus `camera.json`
+
+## Domain randomization knobs
+- Camera: azimuth/elevation/distance/FOV
+- Lighting: intensity/color/HDRI
+- Materials: skin tone / gloves
+

@@ -130,3 +130,37 @@ poetry run doma-live --source 0 --flow raft --detector mediapipe
 ```
 
 
+## Dataset unifié (IPN Hand / Jester / MS-ASL / WLASL)
+
+Le pipeline dataset produit deux sorties par sample:
+- **Pose/Kinematics**: tenseur cinématique (timestamps + pos/vel/acc) + landmarks (optionnel)
+- **Optical-flow features**: métriques temporelles (vitesse, direction dominante, concentration, etc.)
+
+Guide complet: `docs/DATASET_CREATION.md`.
+
+### Installation
+
+```bash
+poetry install -E dataset -E hand
+```
+
+### Build (subset)
+
+```bash
+poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand,jester --subset 10
+```
+
+### MS-ASL / WLASL (download)
+
+Prérequis: `yt-dlp` + `ffmpeg` dans le PATH.
+
+```bash
+poetry run doma-build-dataset --config configs/datasets.yaml --only ms_asl,wlasl --download --subset 10
+```
+
+## Synthétique (angles caméra complexes)
+
+- Blender: `synthetic/blender/README.md`
+- Unreal: `synthetic/unreal/README.md`
+
+
