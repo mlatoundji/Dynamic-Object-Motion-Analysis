@@ -32,6 +32,10 @@ datasets:
     # If you have the official annotation txt/csv files, point them here.
     annotations:
       root: annotations
+    # Create val split by sampling videos from official TRAIN (anti-leak).
+    # Only used when official IPN annotation files are present under `annotations.root`.
+    val_ratio: 0.1
+    seed: 0
     split:
       train: []
       val: []

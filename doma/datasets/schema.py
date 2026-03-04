@@ -29,6 +29,12 @@ class SampleIndex:
     fps: float | None = None
     num_frames: int | None = None
     text: str | None = None  # gloss / translation if available
+    # Optional segment information (used by IPN Hand).
+    # Convention: 1-indexed frame numbers, inclusive (matches IPN annotations).
+    frame_start: int | None = None
+    frame_end: int | None = None
+    parent_video: str | None = None
+    source_annotation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -36,7 +42,8 @@ class PoseTensor:
     """
     Stored to NPZ via to_npz().
 
-    track_* fields implement the spec-friendly shape: [t, pos(3), vel(3), acc(3)] per frame.
+    track_* fields implement the spec-friendly shape:
+    [t, pos(3), vel(3), acc(3)] per frame.
     landmarks_xyz is optional (T,L,3) for richer models.
     """
 
@@ -44,7 +51,7 @@ class PoseTensor:
     track_pos_xyz: np.ndarray  # (T,3)
     track_vel_xyz: np.ndarray  # (T,3)
     track_acc_xyz: np.ndarray  # (T,3)
-    landmarks_xyz: np.ndarray | None = None  # (T,L,3) in same coord system (optional)
+    landmarks_xyz: np.ndarray | None = None  # (T,L,3) in same coord system
     valid: np.ndarray | None = None  # (T,) boolean
     meta: dict[str, Any] | None = None
 
@@ -61,7 +68,9 @@ class PoseTensor:
         if self.valid is not None:
             arrays["valid"] = self.valid.astype(bool)
         if self.meta is not None:
-            arrays["meta_json"] = np.array([_json_dumps(self.meta)], dtype=object)
+            arrays["meta_json"] = np.array(
+                [_json_dumps(self.meta)], dtype=object
+            )
         np.savez_compressed(path, **arrays)
 
 
@@ -90,7 +99,9 @@ class OptFlowFeatures:
             "valid": self.valid.astype(bool),
         }
         if self.meta is not None:
-            arrays["meta_json"] = np.array([_json_dumps(self.meta)], dtype=object)
+            arrays["meta_json"] = np.array(
+                [_json_dumps(self.meta)], dtype=object
+            )
         np.savez_compressed(path, **arrays)
 
 
@@ -98,4 +109,3 @@ def _json_dumps(obj: Any) -> str:
     import json
 
     return json.dumps(obj, ensure_ascii=False, sort_keys=True)
-

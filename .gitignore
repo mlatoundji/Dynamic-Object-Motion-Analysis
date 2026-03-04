@@ -13,3 +13,5 @@ data/
 synthetic/**/out/
 synthetic/**/renders/
 synthetic/**/cache/
+
+.cursor/

@@ -32,7 +32,12 @@ URL modèle (référence): `https://storage.googleapis.com/mediapipe-models/hand
 - Télécharger et extraire IPN Hand (voir page officielle IPN Hand: `https://gibranbenitez.github.io/IPN_Hand/`).
 - Placer les vidéos sous:
   - `data/raw/ipn_hand/videos/**/*.(avi|mp4)` (OpenCV lit les deux)
-- Option recommandé: créer `data/raw/ipn_hand/index.csv` (format contrôlé):
+- Si tu as les **annotations officielles** (fichiers `Annot_*List.txt` + `Video_*List.txt` + `classIdx.txt`),
+  place-les sous `data/raw/ipn_hand/annotations/.../` (le pipeline les détecte automatiquement) :
+  - **1 sample = 1 segment** (`t_start`/`t_end` en frames, inclusifs)
+  - **splits**: train/test officiels, et **val** créé en découpant le TRAIN **au niveau vidéo** via
+    `datasets.ipn_hand.val_ratio` + `datasets.ipn_hand.seed` dans `configs/datasets.yaml`.
+- Sinon, tu peux créer `data/raw/ipn_hand/index.csv` (mode legacy “1 vidéo = 1 sample”):
   - colonnes: `sample_id,split,label,video_path,source_uri`
   - `video_path` peut être relatif à `data/raw/ipn_hand/` (ex: `videos/xx.avi`)
 
