@@ -3,7 +3,8 @@ name = "dynamic-object-motion-analysis"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "MMyster",email = "mouradlatoundji@gmail.com"}
+    {name = "MMyster", email = "mouradlatoundji@gmail.com"},
+    {name = "Chengbo Zhang", email = "chengbozhang.cbz@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +18,10 @@ dependencies = [
     "ultralytics>=8.0.0",
     "mediapipe>=0.9.0",
     "huggingface-hub>=0.20.0",
+    "torch>=2.10.0",
+    "jupyterlab>=4.5.5",
+    "scikit-learn>=1.0",
+    "tqdm>=4.0",
 ]
 
 [tool.poetry]
@@ -36,6 +41,7 @@ raft = [
 
 [project.scripts]
 doma-live = "doma.cli:main"
+doma-train = "doma.modeling.train:main"
 
 
 [build-system]

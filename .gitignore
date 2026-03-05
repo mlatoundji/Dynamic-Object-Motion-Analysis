@@ -4,3 +4,8 @@
 __pycache__/
 uv.lock
 *.pt
+
+data/**
+!data/.gitkeep
+!data/processed/.gitkeep
+!data/raw/.gitkeep
