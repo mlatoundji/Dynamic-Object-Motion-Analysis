@@ -47,6 +47,70 @@ def _load_bundle(run_dir: Path) -> tuple[Path, NormStats, dict[str, int], float]
     return ckpt, norm, label_to_idx, float(dt_ms)
 
 
+def _repo_root() -> Path:
+    # .../doma/live_classifier.py -> repo root
+    return Path(__file__).resolve().parents[1]
+
+
+def _load_label_descriptions() -> dict[str, str]:
+    """
+    Loads IPN label -> semantic description from `docs/labels.md` when available.
+    Falls back to a built-in mapping if the file is missing/unparseable.
+    """
+    fallback = {
+        "D0X": "Non-gesture",
+        "B0A": "Pointing with one finger",
+        "B0B": "Pointing with two fingers",
+        "G01": "Click with one finger",
+        "G02": "Click with two fingers",
+        "G03": "Throw up",
+        "G04": "Throw down",
+        "G05": "Throw left",
+        "G06": "Throw right",
+        "G07": "Open twice",
+        "G08": "Double click with one finger",
+        "G09": "Double click with two fingers",
+        "G10": "Zoom in",
+        "G11": "Zoom out",
+    }
+
+    path = _repo_root() / "docs" / "labels.md"
+    if not path.exists():
+        return fallback
+
+    out: dict[str, str] = {}
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for line in lines:
+        s = line.strip()
+        if not s:
+            continue
+        if s.lower().startswith("id\tlabel\tgesture"):
+            continue
+        if s.startswith("id ") or s.lower().startswith("id\t"):
+            continue
+        parts = [p.strip() for p in s.split("\t")]
+        if len(parts) < 3:
+            continue
+        _id, label, gesture = parts[0], parts[1], parts[2]
+        if not label or not gesture:
+            continue
+        if label.lower().startswith("all "):
+            continue
+        # Basic validation: IPN labels are short tokens (D0X, B0A, G01...)
+        if len(label) > 8:
+            continue
+        out[label] = gesture
+
+    return out or fallback
+
+
+def _label_with_desc(label: str, desc: dict[str, str]) -> str:
+    d = desc.get(label)
+    if not d:
+        return label
+    return f"{label} — {d}"
+
+
 def _rotation_matrix_z(theta: float) -> np.ndarray:
     c = float(np.cos(theta))
     s = float(np.sin(theta))
@@ -249,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ckpt_path, norm, label_to_idx, dt_ms = _load_bundle(Path(args.run))
     idx_to_label = {v: k for k, v in label_to_idx.items()}
+    label_desc = _load_label_descriptions()
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
     mcfg = ModelConfig(**ckpt["model_config"])
@@ -409,10 +474,8 @@ def main(argv: list[str] | None = None) -> int:
                 top_label = "D0X"
                 top_p = float(ema_probs[d0x_idx])
 
-            hud = (
-                f"{top_label}  p={top_p:.2f}  "
-                f"fps={float(fps_ema or 0.0):.1f}"
-            )
+            hud_label = _label_with_desc(top_label, label_desc)
+            hud = f"{hud_label}  p={top_p:.2f}  fps={float(fps_ema or 0.0):.1f}"
             cv2.putText(
                 disp,
                 hud,
@@ -428,6 +491,7 @@ def main(argv: list[str] | None = None) -> int:
             topk = np.argsort(-ema_probs)[:k]
             for i, idx in enumerate(topk.tolist()):
                 lab = str(idx_to_label.get(int(idx), str(idx)))
+                lab = _label_with_desc(lab, label_desc)
                 p_i = float(ema_probs[int(idx)])
                 cv2.putText(
                     disp,
