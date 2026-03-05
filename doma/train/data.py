@@ -213,6 +213,11 @@ def load_sample_features(
     x = np.asarray(x, dtype=np.float32)
     valid = np.asarray(valid, dtype=bool)
 
+    # Safety: ensure we never mark a timestep valid if any feature is non-finite
+    # (e.g., derivatives can produce NaNs even when positions are valid).
+    finite = np.isfinite(x).all(axis=1)
+    valid &= finite
+
     # Standardize if provided.
     if norm is not None:
         if norm.mean.shape[0] != x.shape[1] or norm.std.shape[0] != x.shape[1]:
@@ -246,6 +251,10 @@ def compute_norm_stats(
         if int(np.count_nonzero(valid)) == 0:
             continue
         xv = x[valid]
+        # Extra safety (should already be finite if valid, but keep it robust)
+        xv = xv[np.isfinite(xv).all(axis=1)]
+        if xv.size == 0:
+            continue
         if sum_x is None:
             sum_x = np.zeros((xv.shape[1],), dtype=np.float64)
             sum_x2 = np.zeros((xv.shape[1],), dtype=np.float64)

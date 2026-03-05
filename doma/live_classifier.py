@@ -218,8 +218,12 @@ class LiveBuffer:
         else:
             flow_valid = np.ones_like(pose_valid, dtype=bool)
 
-        x = np.concatenate(feats, axis=1) if feats else np.zeros((0, 1), dtype=np.float32)
-        valid = pose_valid & flow_valid
+        x = (
+            np.concatenate(feats, axis=1)
+            if feats
+            else np.zeros((0, 1), dtype=np.float32)
+        )
+        valid = pose_valid & flow_valid & np.isfinite(x).all(axis=1)
         if int(np.count_nonzero(valid)) == 0:
             return x[:0], 0
         xv = x[valid]
