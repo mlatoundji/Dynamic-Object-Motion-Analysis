@@ -33,9 +33,14 @@ raft = [
     "torch>=2.2",
     "torchvision>=0.17",
 ]
+dataset = [
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+]
 
 [project.scripts]
 doma-live = "doma.cli:main"
+doma-build-dataset = "doma.datasets.cli:main"
 
 
 [build-system]
