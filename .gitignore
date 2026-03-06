@@ -4,10 +4,11 @@
 __pycache__/
 uv.lock
 *.pt
-.docs/
 
-# Datasets (raw/processed) are large and must not be committed
-data/
+data/**
+!data/.gitkeep
+!data/processed/.gitkeep
+!data/raw/.gitkeep
 
 # Synthetic generation outputs (renders, caches)
 synthetic/**/out/
