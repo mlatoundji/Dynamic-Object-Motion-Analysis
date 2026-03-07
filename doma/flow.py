@@ -57,7 +57,7 @@ def raft_dense(prev_bgr: np.ndarray, bgr: np.ndarray) -> np.ndarray:
         import torch
         from torchvision.models.optical_flow import raft_small, Raft_Small_Weights
     except Exception as e:  # pragma: no cover
-        raise RuntimeError("RAFT requires extras: poetry install -E raft") from e
+        raise RuntimeError("RAFT requires extras: uv sync --extra raft") from e
 
     weights = Raft_Small_Weights.DEFAULT
     model = raft_small(weights=weights, progress=False).eval()

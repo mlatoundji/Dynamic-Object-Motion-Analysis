@@ -947,8 +947,8 @@ def _repo_root() -> Path:
 
 def _load_label_descriptions() -> dict[str, str]:
     """
-    Loads IPN label -> semantic description from `docs/labels.md` when available.
-    Falls back to a built-in mapping if the file is missing/unparseable.
+    Loads label -> semantic description from config.labels.LABEL_TO_TEXT when available.
+    Falls back to a built-in mapping if the module is missing.
     """
     fallback = {
         "D0X": "Non-gesture",
@@ -966,35 +966,11 @@ def _load_label_descriptions() -> dict[str, str]:
         "G10": "Zoom in",
         "G11": "Zoom out",
     }
-
-    path = _repo_root() / "docs" / "labels.md"
-    if not path.exists():
+    try:
+        from config.labels import LABEL_TO_TEXT
+        return dict(LABEL_TO_TEXT)
+    except ImportError:
         return fallback
-
-    out: dict[str, str] = {}
-    lines = path.read_text(encoding="utf-8").splitlines()
-    for line in lines:
-        s = line.strip()
-        if not s:
-            continue
-        if s.lower().startswith("id\tlabel\tgesture"):
-            continue
-        if s.startswith("id ") or s.lower().startswith("id\t"):
-            continue
-        parts = [p.strip() for p in s.split("\t")]
-        if len(parts) < 3:
-            continue
-        _id, label, gesture = parts[0], parts[1], parts[2]
-        if not label or not gesture:
-            continue
-        if label.lower().startswith("all "):
-            continue
-        # Basic validation: IPN labels are short tokens (D0X, B0A, G01...)
-        if len(label) > 8:
-            continue
-        out[label] = gesture
-
-    return out or fallback
 
 
 def _label_with_desc(label: str, desc: dict[str, str]) -> str:
@@ -1222,7 +1198,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     if torch is None:
-        raise SystemExit("PyTorch is required. Install with: poetry install -E train -E hand")
+        raise SystemExit("PyTorch is required. Install with: uv sync --extra train --extra hand")
 
     ckpt_path, norm, label_to_idx, dt_ms = _load_bundle(Path(args.run))
     run_dir = Path(args.run).resolve()

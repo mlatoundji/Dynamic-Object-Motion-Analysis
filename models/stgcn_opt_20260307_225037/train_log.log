@@ -1,0 +1,40 @@
+Run ID: stgcn_opt_20260307_225037
+Run dir: models/stgcn_opt_20260307_225037
+Log file: models/stgcn_opt_20260307_225037/train_log.log
+Device: mps
+output_dir=models  model=stgcn_opt  split_mode=train_test  batch_size=32  epochs=20  lr=0.0005  weight_decay=0.01  seed=None
+
+  train_loss=1.9392  val_loss=3.2046  accuracy=0.3491  precision(macro)=0.0948  recall(macro)=0.0857  f1(macro)=0.0597  f1(weighted)=0.2143
+  -> saved best.pt (best accuracy=0.3491)
+  train_loss=1.6217  val_loss=1.6647  accuracy=0.4528  precision(macro)=0.1284  recall(macro)=0.1437  f1(macro)=0.1104  f1(weighted)=0.3254
+  -> saved best.pt (best accuracy=0.4528)
+  train_loss=1.5389  val_loss=1.7547  accuracy=0.4913  precision(macro)=0.1218  recall(macro)=0.1560  f1(macro)=0.1270  f1(weighted)=0.3842
+  -> saved best.pt (best accuracy=0.4913)
+  train_loss=1.5001  val_loss=1.5572  accuracy=0.4901  precision(macro)=0.2427  recall(macro)=0.1599  f1(macro)=0.1339  f1(weighted)=0.3868
+  train_loss=1.4669  val_loss=1.7164  accuracy=0.5193  precision(macro)=0.3348  recall(macro)=0.1870  f1(macro)=0.1767  f1(weighted)=0.4368
+  -> saved best.pt (best accuracy=0.5193)
+  train_loss=1.3997  val_loss=1.6649  accuracy=0.5509  precision(macro)=0.2256  recall(macro)=0.1801  f1(macro)=0.1573  f1(weighted)=0.4488
+  -> saved best.pt (best accuracy=0.5509)
+  train_loss=1.2263  val_loss=2.4839  accuracy=0.5888  precision(macro)=0.1646  recall(macro)=0.1919  f1(macro)=0.1708  f1(weighted)=0.4861
+  -> saved best.pt (best accuracy=0.5888)
+  train_loss=1.1076  val_loss=1.7803  accuracy=0.6267  precision(macro)=0.3671  recall(macro)=0.2308  f1(macro)=0.2198  f1(weighted)=0.5353
+  -> saved best.pt (best accuracy=0.6267)
+  train_loss=1.0557  val_loss=1.3669  accuracy=0.6441  precision(macro)=0.3468  recall(macro)=0.2747  f1(macro)=0.2712  f1(weighted)=0.5709
+  -> saved best.pt (best accuracy=0.6441)
+  train_loss=1.0226  val_loss=1.5107  accuracy=0.6503  precision(macro)=0.4271  recall(macro)=0.2774  f1(macro)=0.2847  f1(weighted)=0.5792
+  -> saved best.pt (best accuracy=0.6503)
+  train_loss=0.9773  val_loss=1.1981  accuracy=0.6615  precision(macro)=0.5061  recall(macro)=0.3073  f1(macro)=0.3100  f1(weighted)=0.6029
+  -> saved best.pt (best accuracy=0.6615)
+  train_loss=0.9453  val_loss=1.5735  accuracy=0.6447  precision(macro)=0.4594  recall(macro)=0.2746  f1(macro)=0.2812  f1(weighted)=0.5689
+  train_loss=0.9033  val_loss=1.3144  accuracy=0.6646  precision(macro)=0.4702  recall(macro)=0.3058  f1(macro)=0.3096  f1(weighted)=0.5975
+  -> saved best.pt (best accuracy=0.6646)
+  train_loss=0.9005  val_loss=1.4233  accuracy=0.6565  precision(macro)=0.4745  recall(macro)=0.2908  f1(macro)=0.3000  f1(weighted)=0.5858
+  train_loss=0.8624  val_loss=1.3175  accuracy=0.6640  precision(macro)=0.4740  recall(macro)=0.3046  f1(macro)=0.3093  f1(weighted)=0.5999
+  train_loss=0.8330  val_loss=1.4584  accuracy=0.6578  precision(macro)=0.4830  recall(macro)=0.2954  f1(macro)=0.3020  f1(weighted)=0.5904
+  train_loss=0.8283  val_loss=1.3655  accuracy=0.6652  precision(macro)=0.4649  recall(macro)=0.2995  f1(macro)=0.3106  f1(weighted)=0.5972
+  -> saved best.pt (best accuracy=0.6652)
+  train_loss=0.8258  val_loss=1.3879  accuracy=0.6640  precision(macro)=0.4965  recall(macro)=0.3024  f1(macro)=0.3147  f1(weighted)=0.5984
+  train_loss=0.8040  val_loss=1.4780  accuracy=0.6565  precision(macro)=0.4901  recall(macro)=0.2816  f1(macro)=0.2895  f1(weighted)=0.5848
+  train_loss=0.8149  val_loss=1.4219  accuracy=0.6627  precision(macro)=0.4897  recall(macro)=0.2967  f1(macro)=0.3103  f1(weighted)=0.5956
+Metrics written to models/stgcn_opt_20260307_225037/metrics.json
+Best epoch: 17 (accuracy=0.6652)

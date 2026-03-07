@@ -1,0 +1,9 @@
+{
+  "num_classes": 14,
+  "num_keypoints": 21,
+  "temporal_length": 478,
+  "dropout": 0.5,
+  "fusion_type": "concat",
+  "use_lstm_for_track": false,
+  "use_lstm_for_optflow": false
+}

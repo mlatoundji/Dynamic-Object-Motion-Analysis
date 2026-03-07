@@ -16,6 +16,7 @@ from .dataloader import (
     CNNLSTMGestureDataset,
 )
 from .flow_dataloader import build_dataloaders as build_flow_dataloaders
+from .stgcn_dataloader import build_dataloaders_stgcn
 from .gesture_features import (
     FeatureConfig,
     NormStats,
@@ -28,6 +29,7 @@ from .gesture_features import (
 __all__ = [
     "build_dataloaders",
     "build_dataloaders_cnn_lstm",
+    "build_dataloaders_stgcn",
     "build_flow_dataloaders",
     "collate_gesture_batch",
     "collate_padded",

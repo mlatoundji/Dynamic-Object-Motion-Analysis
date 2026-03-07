@@ -46,8 +46,8 @@ Colonnes minimales:
 Depuis la racine du repo:
 
 ```bash
-poetry install -E dataset -E hand
-poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand,jester --subset 50
+uv sync --extra dataset --extra hand
+uv run doma-build-dataset --config config/datasets.yaml --only ipn_hand,jester --subset 50
 ```
 
 ### IPN Hand (AVI)
@@ -66,7 +66,7 @@ Prérequis:
 - `ffmpeg` dans le PATH (recommandé; remux automatique vers mp4)
 
 ```bash
-poetry install -E dataset -E hand
-poetry run doma-build-dataset --config config/datasets.yaml --only ms_asl,wlasl --download --subset 100
+uv sync --extra dataset --extra hand
+uv run doma-build-dataset --config config/datasets.yaml --only ms_asl,wlasl --download --subset 100
 ```
 

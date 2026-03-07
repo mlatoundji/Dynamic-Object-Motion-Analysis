@@ -58,6 +58,8 @@ def _register_builtin_models() -> None:
     from doma.models.temporal_transformer import TemporalTransformer, ModelConfig as TTConfig
     from doma.models.temporal_vit import TemporalViT, ModelConfig as ViTConfig
     from doma.models.cnn_lstm import CNNLSTM, ModelConfig as CNNLSTMConfig
+    from doma.models.stgcn import STGCN, ModelConfig as STGCNConfig
+    from doma.models.stgcn_opt import MultiBranchFusion, ModelConfig as STGCNOptConfig
 
     def _build_cnn_lstm(num_classes: int, in_features: int, **kwargs: Any) -> nn.Module:
         cfg = CNNLSTMConfig(num_classes=num_classes, in_features=in_features, **kwargs)
@@ -70,6 +72,14 @@ def _register_builtin_models() -> None:
     def _build_temporal_vit(num_classes: int, **kwargs: Any) -> nn.Module:
         cfg = ViTConfig(num_classes=num_classes, **kwargs)
         return TemporalViT(cfg)
+
+    def _build_stgcn(num_classes: int, **kwargs: Any) -> nn.Module:
+        cfg = STGCNConfig(num_classes=num_classes, **kwargs)
+        return STGCN(cfg)
+
+    def _build_stgcn_opt(num_classes: int, **kwargs: Any) -> nn.Module:
+        cfg = STGCNOptConfig(num_classes=num_classes, **kwargs)
+        return MultiBranchFusion(cfg)
 
     register_model(
         "temporal_transformer",
@@ -110,6 +120,25 @@ def _register_builtin_models() -> None:
             "bidirectional": True,
             "lstm_dropout": 0.1,
             "head_dropout": 0.2,
+        },
+    )
+    register_model(
+        "stgcn",
+        _build_stgcn,
+        default_kwargs={
+            "num_keypoints": 21,
+            "dropout": 0.5,
+        },
+    )
+    register_model(
+        "stgcn_opt",
+        _build_stgcn_opt,
+        default_kwargs={
+            "num_keypoints": 21,
+            "dropout": 0.5,
+            "fusion_type": "concat",
+            "use_lstm_for_track": False,
+            "use_lstm_for_optflow": False,
         },
     )
 
@@ -269,8 +298,6 @@ def run_train(
     Returns:
         Dict with training history and best metrics.
     """
-    from doma.dataloaders import build_dataloaders
-
     if device is None:
         if torch.cuda.is_available():
             device = torch.device("cuda")
@@ -315,40 +342,57 @@ def run_train(
     )
     log.info("")
 
-    # Data (unified features for all manifest-based models)
-    from doma.dataloaders import build_dataloaders
+    # Data (unified features for all manifest-based models; ST-GCN uses dedicated loader)
+    from doma.dataloaders import build_dataloaders, build_dataloaders_stgcn
 
-    loaders = build_dataloaders(
-        manifest_path=manifest_path,
-        root_dir=root_dir,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        max_len=max_len,
-        split_mode=split_mode,
-        pin_memory=(device.type == "cuda"),
-        generator=dataloader_generator,
-    )
+    if model_name in ("stgcn", "stgcn_opt"):
+        loaders = build_dataloaders_stgcn(
+            manifest_path=manifest_path,
+            root_dir=root_dir,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            max_len=max_len,
+            split_mode=split_mode,
+            pin_memory=(device.type == "cuda"),
+            generator=dataloader_generator,
+        )
+    else:
+        loaders = build_dataloaders(
+            manifest_path=manifest_path,
+            root_dir=root_dir,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            max_len=max_len,
+            split_mode=split_mode,
+            pin_memory=(device.type == "cuda"),
+            generator=dataloader_generator,
+        )
 
     if split_mode == "train_val_test":
         train_loader, val_loader, test_loader = loaders
-        eval_loader = val_loader  # train on train, evaluate on val
+        eval_loader = val_loader or test_loader  # fallback to test if val empty (e.g. ST-GCN)
     else:
         train_loader, test_loader = loaders
         eval_loader = test_loader  # train on train+val, evaluate on test
+
+    if eval_loader is None:
+        raise RuntimeError("No evaluation split has samples; need at least val or test rows.")
 
     # Num classes and feature dim from dataset / first batch
     ds = train_loader.dataset
     num_classes = ds.num_classes
     b0 = next(iter(train_loader))
-    in_features = int(b0["x"].shape[2])
+    in_features = int(b0["x"].shape[2]) if "x" in b0 else 0
 
-    # Model (all manifest models use unified batch with x, lengths)
+    # Model (all manifest models use unified batch; stgcn/stgcn_opt use skeleton/motion/track/optflow)
     builder, defaults = get_model_builder(model_name)
     kwargs = {**defaults, **(model_kwargs or {})}
     if model_name == "cnn_lstm":
         model = builder(num_classes=num_classes, in_features=in_features, **kwargs).to(device)
     elif model_name == "temporal_transformer":
         model = builder(num_classes=num_classes, in_features=in_features, **kwargs).to(device)
+    elif model_name in ("stgcn", "stgcn_opt"):
+        model = builder(num_classes=num_classes, **kwargs).to(device)
     else:
         model = builder(num_classes=num_classes, **kwargs).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -357,9 +401,21 @@ def run_train(
 
     # Build model_config for saving (reproducibility); all models now have .cfg
     from dataclasses import asdict
+    from enum import Enum
+
     model_config = asdict(model.cfg)
+
+    def _json_enc(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {k: _json_enc(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_json_enc(x) for x in obj]
+        if isinstance(obj, Enum):
+            return obj.value
+        return obj
+
     with open(run_dir / "model_config.json", "w", encoding="utf-8") as f:
-        json.dump(model_config, f, indent=2)
+        json.dump(_json_enc(model_config), f, indent=2)
 
     train_config = {
         "manifest_path": str(manifest_path),
@@ -380,7 +436,7 @@ def run_train(
         json.dump(train_config, f, indent=2)
 
     # For live-classifier: save norm, label_map to run_dir
-    if model_name in ("cnn_lstm", "temporal_transformer"):
+    if model_name in ("cnn_lstm", "temporal_transformer", "stgcn", "stgcn_opt"):
         norm = getattr(ds, "_norm", None)
         label_to_idx = getattr(ds, "_label_to_idx", None)
         if norm is not None:
@@ -476,7 +532,9 @@ def run_train(
 
     # Per-class metrics for best model (manifest-based: re-run eval with best ckpt)
     best_per_class: dict[str, Any] = {}
-    if ckpt_path.exists() and best_metrics is not None and model_name in ("cnn_lstm", "temporal_transformer"):
+    if ckpt_path.exists() and best_metrics is not None and model_name in (
+        "cnn_lstm", "temporal_transformer", "stgcn", "stgcn_opt"
+    ):
         label_to_idx_best = getattr(ds, "_label_to_idx", None)
         if label_to_idx_best is not None and classification_report is not None:
             ckpt = torch.load(ckpt_path, map_location=device)

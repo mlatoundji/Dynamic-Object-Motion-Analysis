@@ -79,7 +79,7 @@ class MediaPipeHandsDetector:
         try:
             import mediapipe as mp
         except Exception as e:  # pragma: no cover
-            raise RuntimeError("MediaPipe requires extras: poetry install -E hand") from e
+            raise RuntimeError("MediaPipe requires extras: uv sync --extra hand") from e
 
         self._mp = mp
         self._mode: Literal["solutions", "tasks"]
@@ -208,7 +208,7 @@ class YOLODetector:
         try:
             from ultralytics import YOLO
         except Exception as e:  # pragma: no cover
-            raise RuntimeError("YOLO requires extras: poetry install -E yolo") from e
+            raise RuntimeError("YOLO requires extras: uv sync --extra yolo") from e
 
         self._yolo = YOLO(model)
         self._conf = float(conf)

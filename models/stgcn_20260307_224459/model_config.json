@@ -1,0 +1,20 @@
+{
+  "num_classes": 14,
+  "num_keypoints": 21,
+  "temporal_length": 478,
+  "dropout": 0.5,
+  "ks": 1,
+  "kt": 3,
+  "channel_config": [
+    [
+      6,
+      64,
+      64
+    ],
+    [
+      64,
+      64,
+      128
+    ]
+  ]
+}
