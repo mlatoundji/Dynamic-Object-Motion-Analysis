@@ -22,11 +22,13 @@ from tqdm import tqdm
 try:
     from sklearn.metrics import (
         accuracy_score,
+        classification_report,
         precision_recall_fscore_support,
     )
 except ImportError:
     accuracy_score = None
     precision_recall_fscore_support = None
+    classification_report = None
 
 # Model registry: name -> (builder_fn, default_kwargs)
 # builder_fn(num_classes, **kwargs) -> nn.Module
@@ -53,12 +55,25 @@ def get_model_builder(name: str) -> tuple[Callable[..., nn.Module], dict[str, An
 
 # Register built-in models
 def _register_builtin_models() -> None:
-    from doma.models.temporal_transformer import TemporalTransformer
-    from doma.models.temporal_vit import TemporalViT
+    from doma.models.temporal_transformer import TemporalTransformer, ModelConfig as TTConfig
+    from doma.models.temporal_vit import TemporalViT, ModelConfig as ViTConfig
+    from doma.models.cnn_lstm import CNNLSTM, ModelConfig as CNNLSTMConfig
+
+    def _build_cnn_lstm(num_classes: int, in_features: int, **kwargs: Any) -> nn.Module:
+        cfg = CNNLSTMConfig(num_classes=num_classes, in_features=in_features, **kwargs)
+        return CNNLSTM(cfg)
+
+    def _build_temporal_transformer(num_classes: int, in_features: int, **kwargs: Any) -> nn.Module:
+        cfg = TTConfig(num_classes=num_classes, in_features=in_features, **kwargs)
+        return TemporalTransformer(cfg)
+
+    def _build_temporal_vit(num_classes: int, **kwargs: Any) -> nn.Module:
+        cfg = ViTConfig(num_classes=num_classes, **kwargs)
+        return TemporalViT(cfg)
 
     register_model(
         "temporal_transformer",
-        TemporalTransformer,
+        _build_temporal_transformer,
         default_kwargs={
             "d_model": 192,
             "nhead": 4,
@@ -69,7 +84,7 @@ def _register_builtin_models() -> None:
     )
     register_model(
         "temporal_vit",
-        TemporalViT,
+        _build_temporal_vit,
         default_kwargs={
             "num_frames": 16,
             "img_size": 224,
@@ -80,6 +95,21 @@ def _register_builtin_models() -> None:
             "temporal_depth": 2,
             "drop_rate": 0.0,
             "pretrained": True,
+        },
+    )
+    register_model(
+        "cnn_lstm",
+        _build_cnn_lstm,
+        default_kwargs={
+            "conv_channels": 128,
+            "conv_layers": 2,
+            "conv_kernel": 5,
+            "conv_dropout": 0.1,
+            "lstm_hidden": 256,
+            "lstm_layers": 1,
+            "bidirectional": True,
+            "lstm_dropout": 0.1,
+            "head_dropout": 0.2,
         },
     )
 
@@ -183,7 +213,7 @@ def evaluate(
     with torch.no_grad():
         for batch in tqdm(loader, desc=desc, leave=False):
             batch_dev = _batch_to_device(batch, device)
-            label = batch_dev["label"]
+            label = batch_dev.get("label", batch_dev.get("y"))
 
             logits = model(batch=batch_dev)
             loss = criterion(logits, label)
@@ -266,14 +296,17 @@ def run_train(
     # Single run ID for this training run (model, metrics, and log share it)
     run_dt = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = f"{model_name}_{run_dt}"
-    ckpt_path = output_dir / f"{run_id}.pt"
-    metrics_path = output_dir / f"{run_id}.json"
-    log_path = output_dir / f"{run_id}.log"
+    run_dir = output_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_path = run_dir / "best.pt"
+    metrics_path = run_dir / "metrics.json"
+    log_path = run_dir / "train_log.log"
 
     run_handlers = _setup_run_logging(log_path)
     log = _train_logger
 
     log.info("Run ID: %s", run_id)
+    log.info("Run dir: %s", run_dir)
     log.info("Log file: %s", log_path)
     log.info("Device: %s", device)
     log.info(
@@ -282,7 +315,9 @@ def run_train(
     )
     log.info("")
 
-    # Data
+    # Data (unified features for all manifest-based models)
+    from doma.dataloaders import build_dataloaders
+
     loaders = build_dataloaders(
         manifest_path=manifest_path,
         root_dir=root_dir,
@@ -301,17 +336,65 @@ def run_train(
         train_loader, test_loader = loaders
         eval_loader = test_loader  # train on train+val, evaluate on test
 
-    # Num classes from dataset
+    # Num classes and feature dim from dataset / first batch
     ds = train_loader.dataset
     num_classes = ds.num_classes
+    b0 = next(iter(train_loader))
+    in_features = int(b0["x"].shape[2])
 
-    # Model
+    # Model (all manifest models use unified batch with x, lengths)
     builder, defaults = get_model_builder(model_name)
     kwargs = {**defaults, **(model_kwargs or {})}
-    model = builder(num_classes=num_classes, **kwargs).to(device)
+    if model_name == "cnn_lstm":
+        model = builder(num_classes=num_classes, in_features=in_features, **kwargs).to(device)
+    elif model_name == "temporal_transformer":
+        model = builder(num_classes=num_classes, in_features=in_features, **kwargs).to(device)
+    else:
+        model = builder(num_classes=num_classes, **kwargs).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     criterion = nn.CrossEntropyLoss()
+
+    # Build model_config for saving (reproducibility); all models now have .cfg
+    from dataclasses import asdict
+    model_config = asdict(model.cfg)
+    with open(run_dir / "model_config.json", "w", encoding="utf-8") as f:
+        json.dump(model_config, f, indent=2)
+
+    train_config = {
+        "manifest_path": str(manifest_path),
+        "root_dir": str(root_dir),
+        "model_name": model_name,
+        "split_mode": split_mode,
+        "batch_size": batch_size,
+        "epochs": epochs,
+        "lr": lr,
+        "max_len": max_len,
+        "num_workers": num_workers,
+        "save_best_by": save_best_by,
+        "weight_decay": weight_decay,
+        "seed": seed,
+        "dt_ms": 33.333,
+    }
+    with open(run_dir / "train_config.json", "w", encoding="utf-8") as f:
+        json.dump(train_config, f, indent=2)
+
+    # For live-classifier: save norm, label_map to run_dir
+    if model_name in ("cnn_lstm", "temporal_transformer"):
+        norm = getattr(ds, "_norm", None)
+        label_to_idx = getattr(ds, "_label_to_idx", None)
+        if norm is not None:
+            norm.to_npz(run_dir / "norm.npz")
+        if label_to_idx is not None:
+            with open(run_dir / "label_map.json", "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "label_to_idx": label_to_idx,
+                        "idx_to_label": {str(v): k for k, v in label_to_idx.items()},
+                    },
+                    f,
+                    indent=2,
+                )
 
     history: list[dict[str, float]] = []
     best_metric = -1.0
@@ -330,7 +413,7 @@ def run_train(
         )
         for batch in pbar:
             batch_dev = _batch_to_device(batch, device)
-            label = batch_dev["label"]
+            label = batch_dev.get("label", batch_dev.get("y"))
 
             optimizer.zero_grad()
             logits = model(batch=batch_dev)
@@ -385,8 +468,33 @@ def run_train(
                 "num_classes": num_classes,
                 "model_name": model_name,
             }
+            # Live-classifier expects "model" and "model_config"
+            ckpt["model"] = ckpt["model_state_dict"]
+            ckpt["model_config"] = model_config
             torch.save(ckpt, ckpt_path)
             log.info("  -> saved %s (best %s=%.4f)", ckpt_path.name, save_best_by, value)
+
+    # Per-class metrics for best model (manifest-based: re-run eval with best ckpt)
+    best_per_class: dict[str, Any] = {}
+    if ckpt_path.exists() and best_metrics is not None and model_name in ("cnn_lstm", "temporal_transformer"):
+        label_to_idx_best = getattr(ds, "_label_to_idx", None)
+        if label_to_idx_best is not None and classification_report is not None:
+            ckpt = torch.load(ckpt_path, map_location=device)
+            model.load_state_dict(ckpt.get("model", ckpt.get("model_state_dict")), strict=True)
+            eval_labels_best, eval_preds_best, _ = evaluate(
+                model, eval_loader, device,
+                desc="Eval (best)",
+            )
+            labels_sorted = [lab for lab, _ in sorted(label_to_idx_best.items(), key=lambda kv: kv[1])]
+            report = classification_report(
+                eval_labels_best,
+                eval_preds_best,
+                labels=list(range(num_classes)),
+                target_names=labels_sorted,
+                output_dict=True,
+                zero_division=0,
+            )
+            best_per_class = {k: report[k] for k in labels_sorted if k in report}
 
     # Write metrics
     metrics_out = {
@@ -394,6 +502,7 @@ def run_train(
         "best_metric_name": save_best_by,
         "best_metric_value": best_metric,
         "best_metrics": best_metrics if best_metrics is not None else {},
+        "best_per_class": best_per_class,
         "history": history,
     }
     with open(metrics_path, "w", encoding="utf-8") as f:
@@ -507,7 +616,7 @@ def run_train_ipn(
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=True)
         for batch in pbar:
             batch_dev = _batch_to_device(batch, device)
-            label = batch_dev["label"]
+            label = batch_dev.get("label", batch_dev.get("y"))
 
             optimizer.zero_grad()
             logits = model(batch=batch_dev)

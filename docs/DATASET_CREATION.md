@@ -36,7 +36,7 @@ URL modèle (référence): `https://storage.googleapis.com/mediapipe-models/hand
   place-les sous `data/raw/ipn_hand/annotations/.../` (le pipeline les détecte automatiquement) :
   - **1 sample = 1 segment** (`t_start`/`t_end` en frames, inclusifs)
   - **splits**: train/test officiels, et **val** créé en découpant le TRAIN **au niveau vidéo** via
-    `datasets.ipn_hand.val_ratio` + `datasets.ipn_hand.seed` dans `configs/datasets.yaml`.
+    `datasets.ipn_hand.val_ratio` + `datasets.ipn_hand.seed` dans `config/datasets.yaml`.
 - Sinon, tu peux créer `data/raw/ipn_hand/index.csv` (mode legacy “1 vidéo = 1 sample”):
   - colonnes: `sample_id,split,label,video_path,source_uri`
   - `video_path` peut être relatif à `data/raw/ipn_hand/` (ex: `videos/xx.avi`)
@@ -88,19 +88,19 @@ python scripts/datasets/frames_dir_to_mp4.py data/raw/jester/20bn-jester-v1/<vid
 #### Build local (IPN/Jester, sans download)
 
 ```bash
-poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand,jester --subset 50
+poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand,jester --subset 50
 ```
 
 Pour debug/perf, tu peux limiter le nombre de frames par vidéo:
 
 ```bash
-poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand --subset 1 --max-frames 200
+poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand --subset 1 --max-frames 200
 ```
 
 #### Build avec download (MS-ASL/WLASL)
 
 ```bash
-poetry run doma-build-dataset --config configs/datasets.yaml --only ms_asl,wlasl --download --subset 100
+poetry run doma-build-dataset --config config/datasets.yaml --only ms_asl,wlasl --download --subset 100
 ```
 
 ### 4) Sorties

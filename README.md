@@ -147,7 +147,7 @@ poetry install -E hand -E dataset
 ### Build (subset)
 
 ```bash
-poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand,jester --subset 10
+poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand,jester --subset 10
 ```
 
 ### MS-ASL / WLASL (download)
@@ -155,7 +155,7 @@ poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand,jes
 Prérequis: `yt-dlp` + `ffmpeg` dans le PATH.
 
 ```bash
-poetry run doma-build-dataset --config configs/datasets.yaml --only ms_asl,wlasl --download --subset 10
+poetry run doma-build-dataset --config config/datasets.yaml --only ms_asl,wlasl --download --subset 10
 ```
 ## Entraînement
 

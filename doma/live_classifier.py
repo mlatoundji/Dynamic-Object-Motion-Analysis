@@ -23,8 +23,9 @@ try:
 except Exception:  # pragma: no cover
     torch = None  # type: ignore[assignment]
 
-from .train.data import FeatureConfig, NormStats
-from .train.model import CNNLSTMClassifier, ModelConfig
+from doma.models.cnn_lstm import CNNLSTM, ModelConfig
+from doma.models.temporal_transformer import TemporalTransformer, ModelConfig as TTConfig
+from doma.dataloaders import FeatureConfig, NormStats
 from .datasets.manifest import write_manifest_csv
 from .datasets.schema import OptFlowFeatures, PoseTensor
 
@@ -906,13 +907,24 @@ class _AnnotationManager:
 
 
 def _load_bundle(run_dir: Path) -> tuple[Path, NormStats, dict[str, int], float]:
+    """Load checkpoint path, norm stats, label map, and dt_ms from a training run directory.
+    Supports both layouts: run_dir/best.pt (doma-train) and run_dir/checkpoints/best.pt (legacy).
+    """
     run_dir = run_dir.resolve()
-    ckpt = run_dir / "checkpoints" / "best.pt"
+    ckpt = run_dir / "best.pt"
     if not ckpt.exists():
-        raise FileNotFoundError(f"Missing checkpoint: {ckpt}")
+        ckpt = run_dir / "best.pt"
+    if not ckpt.exists():
+        raise FileNotFoundError(f"Missing checkpoint: {run_dir / 'best.pt'} or {run_dir / 'best.pt'}")
 
-    norm = NormStats.from_npz(run_dir / "norm.npz")
+    norm_path = run_dir / "norm.npz"
+    if not norm_path.exists():
+        raise FileNotFoundError(f"Missing norm stats: {norm_path} (train with doma-train --model cnn_lstm to produce it)")
+    norm = NormStats.from_npz(norm_path)
+
     label_map_path = run_dir / "label_map.json"
+    if not label_map_path.exists():
+        raise FileNotFoundError(f"Missing label map: {label_map_path}")
     label_map = json.loads(label_map_path.read_text(encoding="utf-8")).get("label_to_idx", {})
     if not isinstance(label_map, dict) or not label_map:
         raise ValueError("Invalid label_map.json")
@@ -1177,7 +1189,7 @@ class LiveBuffer:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="PoC: live hand gesture classification (CNN-LSTM)")
-    p.add_argument("--run", required=True, help="Training run directory (runs/...)")
+    p.add_argument("--run", required=True, help="Run directory (models/<run_id> from doma-train); cnn_lstm or temporal_transformer; must contain best.pt, norm.npz, label_map.json")
     p.add_argument("--source", default="0", help="Camera index or video path")
     p.add_argument("--window-ms", type=float, default=1500.0)
     p.add_argument("--infer-every-ms", type=float, default=200.0)
@@ -1213,14 +1225,32 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("PyTorch is required. Install with: poetry install -E train -E hand")
 
     ckpt_path, norm, label_to_idx, dt_ms = _load_bundle(Path(args.run))
+    run_dir = Path(args.run).resolve()
     idx_to_label = {v: k for k, v in label_to_idx.items()}
     label_desc = _load_label_descriptions()
     labels_sorted = [lab for lab, _ in sorted(label_to_idx.items(), key=lambda kv: kv[1])]
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
-    mcfg = ModelConfig(**ckpt["model_config"])
-    model = CNNLSTMClassifier(mcfg)
-    model.load_state_dict(ckpt["model"])
+    # Support both formats: live-classifier (model + model_config) and train.py (model_state_dict + model_config.json)
+    raw_cfg = ckpt.get("model_config")
+    if raw_cfg is None:
+        model_config_path = run_dir / "model_config.json"
+        if not model_config_path.exists():
+            raise FileNotFoundError(f"Checkpoint has no model_config and {model_config_path} not found")
+        raw_cfg = json.loads(model_config_path.read_text(encoding="utf-8"))
+
+    # Detect model type: Temporal Transformer has d_model / nhead; CNN-LSTM does not
+    if "d_model" in raw_cfg:
+        mcfg = TTConfig(**raw_cfg)
+        model = TemporalTransformer(mcfg)
+    else:
+        mcfg = ModelConfig(**raw_cfg)
+        model = CNNLSTM(mcfg)
+
+    state = ckpt.get("model", ckpt.get("model_state_dict"))
+    if state is None:
+        raise KeyError("Checkpoint must contain 'model' or 'model_state_dict'")
+    model.load_state_dict(state, strict=True)
     model.eval()
 
     feat_cfg = FeatureConfig(
@@ -1468,7 +1498,7 @@ def main(argv: list[str] | None = None) -> int:
                 lt = torch.tensor([int(length)], dtype=torch.long)
                 t_inf0 = time.perf_counter()
                 with torch.no_grad():
-                    logits = model(xt, lt)
+                    logits = model(batch={"x": xt, "lengths": lt})
                     probs = (
                         torch.softmax(logits, dim=1)
                         .squeeze(0)

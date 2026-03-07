@@ -47,7 +47,7 @@ Depuis la racine du repo:
 
 ```bash
 poetry install -E dataset -E hand
-poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand,jester --subset 50
+poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand,jester --subset 50
 ```
 
 ### IPN Hand (AVI)
@@ -67,6 +67,6 @@ Prérequis:
 
 ```bash
 poetry install -E dataset -E hand
-poetry run doma-build-dataset --config configs/datasets.yaml --only ms_asl,wlasl --download --subset 100
+poetry run doma-build-dataset --config config/datasets.yaml --only ms_asl,wlasl --download --subset 100
 ```
 

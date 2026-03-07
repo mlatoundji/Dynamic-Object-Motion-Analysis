@@ -51,7 +51,7 @@ flowchart LR
     - `Annot_TrainList.txt` / `Annot_TestList.txt`
     - `classIdx.txt`
 
-**Indexation** : un sample = **un segment** (début/fin en numéros de frames, inclusifs). Le split **val** est créé en sous-échantillonnant le TRAIN au niveau vidéo (`val_ratio`, `seed` dans `configs/datasets.yaml`).
+**Indexation** : un sample = **un segment** (début/fin en numéros de frames, inclusifs). Le split **val** est créé en sous-échantillonnant le TRAIN au niveau vidéo (`val_ratio`, `seed` dans `config/datasets.yaml`).
 
 Code clé — recherche du dossier d’annotations et construction des samples par segment :
 
@@ -129,7 +129,7 @@ OptFlowFeatures(...).to_npz(flow_path)
 - `extract_pose_stream(frames, cfg)` : utilise `MediaPipeHandsDetector` (backend `hands`), parcourt les frames, détecte bbox + landmarks 21 points, normalise l’origine (premier poignet), optionnellement rotation (wrist → middle MCP). Sortie : `PoseExtractResult` (t_ms, track_xyz, landmarks_xyz, valid).
 - `build_pose_tensor(pose, dt_ms)` : rééchantillonnage linéaire sur grille `dt_ms`, dérivation pour vitesse et accélération, production de `PoseTensor` (timestamps_ms, track_pos_xyz, track_vel_xyz, track_acc_xyz, landmarks_xyz, valid).
 
-Configuration : [configs/datasets.yaml](../configs/datasets.yaml) — `processing.mediapipe` (backend, max_num_hands, min_detection_confidence, min_tracking_confidence), `processing.dt_ms` (ex. 33.333 ms ≈ 30 FPS).
+Configuration : [config/datasets.yaml](../config/datasets.yaml) — `processing.mediapipe` (backend, max_num_hands, min_detection_confidence, min_tracking_confidence), `processing.dt_ms` (ex. 33.333 ms ≈ 30 FPS).
 
 **Flot optique (Farnebäck)** — [doma/datasets/optflow.py](../doma/datasets/optflow.py) :
 
@@ -150,7 +150,7 @@ Le pipeline dataset **par défaut** n’utilise pas YOLO ; le README mentionne Y
 **Commande** :
 
 ```bash
-poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand --subset N
+poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand --subset N
 ```
 
 ---
@@ -166,11 +166,11 @@ poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand --s
 
 ### 3.2 Implémentation
 
-**Fichier** : [doma/train/model.py](../doma/train/model.py)
+**Fichier** : [doma/models/cnn_lstm.py](../doma/models/cnn_lstm.py)
 
 - `ModelConfig` : in_features, num_classes, conv_channels, conv_layers, conv_kernel, conv_dropout, lstm_hidden, lstm_layers, bidirectional, lstm_dropout, head_dropout.
 - `ConvBlock` : Conv1d → BatchNorm1d → GELU → Dropout.
-- `CNNLSTMClassifier` :
+- `CNNLSTM` :
   - Conv 1D : entrée `(B, T, F)` transposée en `(B, F, T)`, puis séquence de ConvBlocks, puis transposée en `(B, T, C)`.
   - LSTM : `pack_padded_sequence` pour ignorer le padding, LSTM bidirectionnel, `pad_packed_sequence`.
   - Pooling : `_masked_mean(out, lengths)` → vecteur (B, C’).
@@ -179,7 +179,7 @@ poetry run doma-build-dataset --config configs/datasets.yaml --only ipn_hand --s
 Extrait du forward :
 
 ```python
-# doma/train/model.py, CNNLSTMClassifier.forward
+# doma/models/cnn_lstm.py, CNNLSTM.forward
 def forward(self, x: "torch.Tensor", lengths: "torch.Tensor") -> "torch.Tensor":
     x = x.transpose(1, 2)  # (B,F,T)
     x = self.conv(x)      # (B,C,T)
@@ -194,7 +194,7 @@ def forward(self, x: "torch.Tensor", lengths: "torch.Tensor") -> "torch.Tensor":
     return self.head(pooled)
 ```
 
-**Données d’entrée** — [doma/train/data.py](../doma/train/data.py) : lecture du manifest, chargement des NPZ (pose + optflow), construction du vecteur de features (pose : pos/vel/acc, optionnel landmarks ; optflow : avg_speed, max_speed, angle en sin/cos, direction_concentration, n_pixels, threshold), masquage des timesteps invalides, padding, normalisation (moyenne/écart-type depuis `norm.npz`).
+**Données d’entrée** — [doma/dataloaders/gesture_features.py](../doma/dataloaders/gesture_features.py) et [doma/dataloaders/dataloader.py](../doma/dataloaders/dataloader.py) : lecture du manifest, chargement des NPZ (pose + optflow), construction du vecteur de features (pose : pos/vel/acc, optionnel landmarks ; optflow : avg_speed, max_speed, angle en sin/cos, direction_concentration, n_pixels, threshold), masquage des timesteps invalides, padding, normalisation (moyenne/écart-type depuis le train).
 
 Les hyperparamètres du run sont consignés dans [docs/REPORT_CNN_LSTM.md](REPORT_CNN_LSTM.md) (model_config, train_config).
 
@@ -285,7 +285,7 @@ Cela justifie un **ré-entraînement ciblé** (finetuning) sur le mini-dataset a
   - `manifest_csv`: `data/annotated/live_20260307-135942/manifest.splits.csv`  
   - epochs 30, batch 16, lr 0.0001, dropout 0.3.
 
-**Chargement du checkpoint** — [doma/train/runner.py](../doma/train/runner.py) : si `init_ckpt` est renseigné, `torch.load(ckpt_path)` et `model.load_state_dict(ckpt["model"], strict=True)` pour initialiser le modèle avant l’entraînement.
+**Chargement du checkpoint** — [doma/modeling/train.py](../doma/modeling/train.py) : si `init_ckpt` est renseigné, `torch.load(ckpt_path)` et `model.load_state_dict(ckpt["model"], strict=True)` pour initialiser le modèle avant l'entraînement., `torch.load(ckpt_path)` et `model.load_state_dict(ckpt["model"], strict=True)` pour initialiser le modèle avant l’entraînement.
 
 **Métriques** :
 

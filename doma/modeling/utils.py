@@ -1,3 +1,5 @@
+"""Shared utils: seed, JSON save, dataclass to JSON."""
+
 from __future__ import annotations
 
 import json
@@ -9,9 +11,9 @@ from typing import Any
 
 import numpy as np
 
-try:  # torch is optional
+try:
     import torch
-except Exception:  # pragma: no cover
+except Exception:
     torch = None  # type: ignore[assignment]
 
 
@@ -23,19 +25,6 @@ def set_seed(seed: int) -> None:
         torch.manual_seed(int(seed))
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(int(seed))
-
-
-def pick_device(device: str) -> str:
-    if torch is None:  # pragma: no cover
-        return "cpu"
-    d = (device or "auto").strip().lower()
-    if d in {"auto", ""}:
-        if torch.cuda.is_available():
-            return "cuda"
-        return "cpu"
-    if d == "cuda" and not torch.cuda.is_available():
-        return "cpu"
-    return d
 
 
 def save_json(path: Path, payload: Any) -> None:

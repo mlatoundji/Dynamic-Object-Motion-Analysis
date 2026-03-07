@@ -2,7 +2,6 @@
 .venv
 .mediapipe_models
 __pycache__/
-*.pt
 .docs/
 
 # Datasets (raw/processed) are large and must not be committed

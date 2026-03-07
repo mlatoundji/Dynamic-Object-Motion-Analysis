@@ -1,19 +1,25 @@
+"""
+CNN-LSTM temporal classifier for gesture recognition (manifest-based features).
+
+Conv1D over time + LSTM + masked mean pooling. Training via doma-train (doma.modeling.train).
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-try:  # torch is optional dependency
+try:
     import torch
     import torch.nn as nn
-except Exception:  # pragma: no cover
+except Exception:
     torch = None  # type: ignore[assignment]
     nn = object  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
 class ModelConfig:
-    in_features: int
     num_classes: int
+    in_features: int
     conv_channels: int = 128
     conv_layers: int = 2
     conv_kernel: int = 5
@@ -26,18 +32,14 @@ class ModelConfig:
 
 
 def _masked_mean(x: "torch.Tensor", lengths: "torch.Tensor") -> "torch.Tensor":
-    """
-    x: (B,T,C)
-    lengths: (B,) number of valid steps (>=0)
-    returns: (B,C)
-    """
+    """x: (B,T,C), lengths: (B,) -> (B,C)."""
     B, T, C = x.shape
     if T == 0:
         return x.new_zeros((B, C))
     device = x.device
     idx = torch.arange(T, device=device).unsqueeze(0).expand(B, T)
-    mask = idx < lengths.clamp_min(0).unsqueeze(1)  # (B,T)
-    mask_f = mask.to(dtype=x.dtype).unsqueeze(2)  # (B,T,1)
+    mask = idx < lengths.clamp_min(0).unsqueeze(1)
+    mask_f = mask.to(dtype=x.dtype).unsqueeze(2)
     denom = mask_f.sum(dim=1).clamp_min(1.0)
     return (x * mask_f).sum(dim=1) / denom
 
@@ -57,17 +59,15 @@ class ConvBlock(nn.Module):
         return self.net(x)
 
 
-class CNNLSTMClassifier(nn.Module):
+class CNNLSTM(nn.Module):
     """
     Temporal CNN (Conv1D over time) + LSTM classifier.
-
-    Input: x (B,T,F) and lengths (B,)
-    Output: logits (B,num_classes)
+    Input: x (B,T,F), lengths (B,), or batch=dict with "x", "lengths". Output: logits (B,num_classes).
     """
 
     def __init__(self, cfg: ModelConfig) -> None:
-        if torch is None:  # pragma: no cover
-            raise RuntimeError("PyTorch is required to use CNNLSTMClassifier.")
+        if torch is None:
+            raise RuntimeError("PyTorch is required to use CNNLSTM.")
         super().__init__()
         self.cfg = cfg
 
@@ -78,10 +78,9 @@ class CNNLSTMClassifier(nn.Module):
 
         blocks = []
         in_ch = int(cfg.in_features)
-        for i in range(conv_layers):
-            out_ch = conv_ch
-            blocks.append(ConvBlock(in_ch=in_ch, out_ch=out_ch, kernel=kernel, dropout=drop))
-            in_ch = out_ch
+        for _ in range(conv_layers):
+            blocks.append(ConvBlock(in_ch=in_ch, out_ch=conv_ch, kernel=kernel, dropout=drop))
+            in_ch = conv_ch
         self.conv = nn.Sequential(*blocks) if blocks else nn.Identity()
 
         lstm_in = in_ch
@@ -101,37 +100,43 @@ class CNNLSTMClassifier(nn.Module):
             nn.Linear(lstm_out, int(cfg.num_classes)),
         )
 
-    def forward(self, x: "torch.Tensor", lengths: "torch.Tensor") -> "torch.Tensor":
-        # x: (B,T,F) -> (B,F,T) for Conv1D
-        x = x.transpose(1, 2)  # (B,F,T)
-        x = self.conv(x)  # (B,C,T)
-        x = x.transpose(1, 2)  # (B,T,C)
-
-        # Pack to avoid wasting compute on padding.
+    def forward(
+        self,
+        x: "torch.Tensor | None" = None,
+        lengths: "torch.Tensor | None" = None,
+        *,
+        batch: "dict[str, torch.Tensor] | None" = None,
+    ) -> "torch.Tensor":
+        if batch is not None:
+            x = batch["x"]
+            lengths = batch["lengths"]
+        if x is None or lengths is None:
+            raise ValueError("CNNLSTM requires (x, lengths) or batch= with 'x' and 'lengths'")
+        x = x.transpose(1, 2)
+        x = self.conv(x)
+        x = x.transpose(1, 2)
         lengths_cpu = lengths.to(dtype=torch.long, device="cpu").clamp_min(1)
         packed = nn.utils.rnn.pack_padded_sequence(
             x, lengths_cpu, batch_first=True, enforce_sorted=False
         )
         packed_out, _ = self.lstm(packed)
-        out, _ = nn.utils.rnn.pad_packed_sequence(packed_out, batch_first=True)  # (B,T,C)
-
+        out, _ = nn.utils.rnn.pad_packed_sequence(packed_out, batch_first=True)
         pooled = _masked_mean(out, lengths.to(device=out.device))
         return self.head(pooled)
 
 
 def export_onnx(
-    model: "CNNLSTMClassifier",
+    model: "CNNLSTM",
     *,
     out_path,
     opset: int = 17,
     max_len: int = 256,
 ) -> None:
-    if torch is None:  # pragma: no cover
+    if torch is None:
         raise RuntimeError("PyTorch is required for ONNX export.")
     out_path = str(out_path)
     model.eval()
-    B = 1
-    F = int(model.cfg.in_features)
+    B, F = 1, int(model.cfg.in_features)
     dummy_x = torch.zeros((B, int(max_len), F), dtype=torch.float32)
     dummy_len = torch.tensor([int(max_len)], dtype=torch.long)
     torch.onnx.export(
@@ -147,4 +152,3 @@ def export_onnx(
         },
         opset_version=int(opset),
     )
-
