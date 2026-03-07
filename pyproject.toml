@@ -22,6 +22,7 @@ dependencies = [
     "jupyterlab>=4.5.5",
     "scikit-learn>=1.0",
     "tqdm>=4.0",
+    "timm>=1.0.25",
 ]
 
 [tool.poetry]
@@ -37,6 +38,9 @@ yolo = [
 raft = [
     "torch>=2.2",
     "torchvision>=0.17",
+]
+vit = [
+    "timm>=0.9.0",
 ]
 
 [project.scripts]

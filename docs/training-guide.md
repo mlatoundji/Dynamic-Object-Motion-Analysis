@@ -13,36 +13,40 @@ Run from the **project root** so paths resolve correctly.
 
 ---
 
-## 2. Dataset (`doma/dataset.py`)
+## 2. Data loaders (`doma.dataloaders`)
 
-### GestureDataset
+The package **`doma.dataloaders`** exposes DataLoader builders; dataset classes are internal.
 
-- **Purpose**: Loads one sample per row from the manifest: reads `pose_tensor.npz` and `optflow_features.npz`, converts them to tensors, and returns a dict.
+- **`doma.dataloaders.flow_dataloader`**: `build_dataloaders` — IPN flow (ipnall_flo.json + flow frames) → train_loader, val_loader.
+- **`doma.dataloaders.dataloader`**: `build_dataloaders`, `collate_gesture_batch` — manifest.csv (pose/optflow NPZ) → train/val/test loaders.
+
+### build_dataloaders (`doma.dataloaders.dataloader`)
+
+Builds DataLoaders from `manifest.csv` (pose/optflow NPZ paths):
+
+- **Purpose**: Loads one sample per row from the manifest, reads pose and optflow NPZ, returns batches with padding.
 - **Key arguments**:
   - `manifest_path`: path to `manifest.csv`
   - `root_dir`: project root (e.g. `"."`)
-  - `split`: `"train"`, `"val"`, `"test"`, or a list like `["train", "val"]`
-  - `label_to_id`: optional; defaults to `config.labels.LABEL_TO_ID`
-- **Per sample**:
-  - `pose`: (T, 72) — track (pos, vel, acc) + 21 hand landmarks flattened
-  - `optflow`: (T, 6) — avg_speed, max_speed, dominant_angle_deg, direction_concentration, n_pixels, threshold
-  - `label`: int class index
-  - `length`: T (sequence length) -> number of frames
-
-### create_dataloaders
-
-Builds DataLoaders with padding and optional max length:
-
-- **split_mode**
-  - `"train_val_test"`: three loaders — train, val, test.
-  - `"train_test"`: two loaders — train+val combined, test.
-- **Other args**: `batch_size`, `num_workers`, `max_len`, `pad_value`, `pin_memory` (set `False` for MPS/CPU).
+  - `split_mode`: `"train_val_test"` (train, val, test) or `"train_test"` (train+val, test)
+  - `batch_size`, `num_workers`, `max_len`, `pad_value`, `pin_memory`, `label_to_id`
+- **Per sample in batch**:
+  - `pose`: (B, T_max, 72), `optflow`: (B, T_max, 6), `label`, `length`, `sample_id`, `valid_pose`, `valid_optflow`
 
 Returns `(train_loader, val_loader, test_loader)` or `(train_loader, test_loader)`.
 
+### build_dataloaders (`doma.dataloaders.flow_dataloader`)
+
+Builds train/val DataLoaders for the IPN Hand flow dataset (`ipnall_flo.json` + flow frame directories):
+
+- **Arguments**: `annotation_path`, `flow_dir`, `num_frames`, `frame_size`, `batch_size`, `num_workers`, `pin_memory`
+- **Batch**: `frames` (B, T, C, H, W), `label`, `length`, `sample_id`
+
+Returns `(train_loader, val_loader)`.
+
 ### collate_gesture_batch
 
-Pads variable-length sequences to the max length in the batch (or `max_len`). Use as `collate_fn` when building a DataLoader manually.
+Pads variable-length manifest samples to the max length in the batch (or `max_len`). Use as `collate_fn` when building a DataLoader manually.
 
 ---
 
@@ -144,3 +148,15 @@ Logging goes to both console and the log file via Python’s `logging`.
 3. Run with `--model my_model`.
 
 The training loop and metrics are model-agnostic; only the forward signature and registry are required.
+
+---
+
+## 6. IPN Hand flow and Temporal ViT
+
+For the IPN Hand dataset (flow frames + `ipnall_flo.json`): use **`doma.dataloaders.flow_dataloader.build_dataloaders`** (or `from doma.dataloaders import build_dataloaders`) and the **Temporal ViT** model (`doma/models/temporal_vit.py`, registered as `temporal_vit`). Frames live under `flow_dir` (default `root_dir/flow`) as `<seq_id>_<frame:06d>.jpg`. Train with:
+
+```bash
+uv run doma-train --dataset-type ipn_flow --annotation data/raw/ipn_hand/ipnall_flo.json --root-dir data/raw/ipn_hand --model temporal_vit --output-dir models
+```
+
+`--annotation` is mandatory when `--dataset-type ipn_flow`. The IPN dataset has only train/val splits; no `--split-mode` is used.

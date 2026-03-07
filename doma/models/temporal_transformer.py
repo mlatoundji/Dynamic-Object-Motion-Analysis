@@ -72,9 +72,10 @@ class TemporalTransformer(nn.Module):
             dropout=dropout,
             activation="gelu",
             batch_first=True,
-            norm_first=False,
+            norm_first=True,
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers)
+        self.pool_norm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(d_model, num_classes)
         self._init_weights()
@@ -136,6 +137,7 @@ class TemporalTransformer(nn.Module):
         x_masked = x.masked_fill(key_padding_float.bool(), 0.0)
         lengths_clamped = length.clamp(min=1).unsqueeze(1).float()  # (B, 1)
         pooled = x_masked.sum(dim=1) / lengths_clamped  # (B, d_model)
+        pooled = self.pool_norm(pooled)
 
         logits = self.classifier(pooled)  # (B, num_classes)
         return logits
