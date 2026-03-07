@@ -7,7 +7,7 @@ Ce projet fournit un pipeline reproductible qui transforme des vidéos/frames en
 
 ### 0) Prérequis
 
-- Python 3.12+ et Poetry
+- Python 3.12+ et uv
 - Pour MS-ASL/WLASL (download):
   - `yt-dlp` dans le PATH
   - `ffmpeg` dans le PATH
@@ -15,7 +15,7 @@ Ce projet fournit un pipeline reproductible qui transforme des vidéos/frames en
 ### 1) Installation
 
 ```bash
-poetry install -E dataset -E hand
+uv sync --extra dataset --extra hand
 ```
 
 ### MediaPipe (important)
@@ -88,19 +88,19 @@ python scripts/datasets/frames_dir_to_mp4.py data/raw/jester/20bn-jester-v1/<vid
 #### Build local (IPN/Jester, sans download)
 
 ```bash
-poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand,jester --subset 50
+uv run doma-build-dataset --config config/datasets.yaml --only ipn_hand,jester --subset 50
 ```
 
 Pour debug/perf, tu peux limiter le nombre de frames par vidéo:
 
 ```bash
-poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand --subset 1 --max-frames 200
+uv run doma-build-dataset --config config/datasets.yaml --only ipn_hand --subset 1 --max-frames 200
 ```
 
 #### Build avec download (MS-ASL/WLASL)
 
 ```bash
-poetry run doma-build-dataset --config config/datasets.yaml --only ms_asl,wlasl --download --subset 100
+uv run doma-build-dataset --config config/datasets.yaml --only ms_asl,wlasl --download --subset 100
 ```
 
 ### 4) Sorties

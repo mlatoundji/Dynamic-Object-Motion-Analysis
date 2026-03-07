@@ -150,7 +150,7 @@ Le pipeline dataset **par défaut** n’utilise pas YOLO ; le README mentionne Y
 **Commande** :
 
 ```bash
-poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand --subset N
+uv run doma-build-dataset --config config/datasets.yaml --only ipn_hand --subset N
 ```
 
 ---
@@ -159,7 +159,7 @@ poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand --su
 
 ### 3.1 Objectif et choix architecturaux
 
-- **Objectif** : classification **catégorielle** de formes discrètes (labels IPN : D0X, B0A, B0B, G01–G11) à partir de **séquences temporelles** de features (pose + optflow), et non une tâche séquence-à-séquence. Référence des labels et statistiques : [docs/labels.md](labels.md).
+- **Objectif** : classification **catégorielle** de formes discrètes (labels IPN : D0X, B0A, B0B, G01–G11) à partir de **séquences temporelles** de features (pose + optflow), et non une tâche séquence-à-séquence. Définition des labels et descriptions : `config/labels.py` (LABEL_TO_TEXT, LABELS, LABEL_TO_ID).
 - **Conv1D temporel** : réduction du bruit et extraction de motifs **locaux dans le temps** (kernel 5, 2 couches, 128 canaux). Adapté à des gestes dont la dynamique courte (fenêtre de quelques centaines de ms) est discriminante.
 - **LSTM** : modélisation des **dépendances longues** dans la fenêtre ; **bidirectionnel** pour utiliser le contexte passé et futur ; sortie agrégée par **pooling moyen masqué** sur la séquence (et non seulement la dernière étape), ce qui stabilise la prédiction pour des gestes de longueur variable.
 - **Tête** : LayerNorm, Dropout, Linear → logits (14 classes). Entrée : tenseur `(B, T, F)` avec F = 79 (pose + optflow + landmarks selon config d’entraînement).
@@ -238,7 +238,7 @@ L’historique de diagnostic et de propositions (logging, reset, benchmark) est 
 **Activation** (logging obligatoire) :
 
 ```bash
-poetry run doma-live-classifier --run runs\classify_20260305-211230 --source 0 --log-dir doma\sessions --annotations
+uv run doma-live-classifier --run runs\classify_20260305-211230 --source 0 --log-dir doma\sessions --annotations
 ```
 
 **Code** : [doma/live_classifier.py](../doma/live_classifier.py)
@@ -309,4 +309,4 @@ Le projet couvre un pipeline complet : **données brutes IPN Hand** → **indexa
 - **Live** : seuils D0X, hystérésis, motion gating, calibration par utilisateur.
 - **Pipeline** : RAFT/WAFT en option pour le flot, Re-ID si multi-mains.
 
-**Références** : [README.md](../README.md), [docs/DATASET_CREATION.md](DATASET_CREATION.md), [docs/REPORT_CNN_LSTM.md](REPORT_CNN_LSTM.md), [docs/LIVE_CLASSIFIER_DIAGNOSTIC.md](LIVE_CLASSIFIER_DIAGNOSTIC.md), [docs/labels.md](labels.md), [.docs/Projet Flot Optique et Traduction Geste.md](../.docs/Projet%20Flot%20Optique%20et%20Traduction%20Geste.md).
+**Références** : [README.md](../README.md), [docs/DATASET_CREATION.md](DATASET_CREATION.md), [docs/REPORT_CNN_LSTM.md](REPORT_CNN_LSTM.md), [docs/LIVE_CLASSIFIER_DIAGNOSTIC.md](LIVE_CLASSIFIER_DIAGNOSTIC.md), `config/labels.py`, [.docs/Projet Flot Optique et Traduction Geste.md](../.docs/Projet%20Flot%20Optique%20et%20Traduction%20Geste.md).

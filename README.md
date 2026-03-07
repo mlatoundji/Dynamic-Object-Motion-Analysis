@@ -1,250 +1,229 @@
-# Détection et analyse du mouvement par flot optique guidé par objets
+# Dynamic Object Motion Analysis (DOMA)
 
-Ce projet combine **détection de main** (brique sémantique) et **flot optique** (brique dynamique) pour estimer et qualifier le mouvement: **vitesse**, **direction**, **amplitude**, et états **arrêt/reprise**.
+**Détection et analyse du mouvement par flot optique guidé par objets** — combinaison de **détection de main** (MediaPipe / YOLO) et **flot optique** (Farnebäck / RAFT) pour estimer vitesse, direction et amplitude du mouvement, puis **classification de gestes** par modèles séquence→classe (CNN-LSTM, Temporal Transformer, ST-GCN).
 
-## Architecture (pipeline)
+---
 
-```mermaid
-flowchart LR
-  Frames[VideoFrames] --> Detect[HandDetection]
-  Frames --> Flow[OpticalFlow]
-  Detect --> ROI[HandROIorMask]
-  Flow --> Assoc[FlowInROI]
-  ROI --> Assoc
-  Assoc --> Filter[BackgroundAndNoiseFiltering]
-  Filter --> Feat[MotionFeatures]
-  Feat --> Viz[VisualizationAndPlots]
-  Feat --> Export[ExportMetrics]
+## Table des matières
+
+- [Dynamic Object Motion Analysis (DOMA)](#dynamic-object-motion-analysis-doma)
+  - [Table des matières](#table-des-matières)
+  - [À propos](#à-propos)
+  - [Structure du projet](#structure-du-projet)
+  - [Prérequis et installation](#prérequis-et-installation)
+  - [Données](#données)
+    - [Labels IPN Hand](#labels-ipn-hand)
+    - [Aperçu du dataset IPN Hand (original)](#aperçu-du-dataset-ipn-hand-original)
+    - [Sorties du pipeline](#sorties-du-pipeline)
+    - [Création du dataset](#création-du-dataset)
+  - [Entraînement](#entraînement)
+    - [Modèles](#modèles)
+    - [Entraînement](#entraînement-1)
+  - [Inférence en direct](#inférence-en-direct)
+  - [Analyse des logs](#analyse-des-logs)
+  - [Documentation](#documentation)
+  - [Références](#références)
+
+---
+
+## À propos
+
+Le pipeline repose sur :
+
+1. **Brique sémantique** : détection de la main (ROI manuelle, MediaPipe Hands, ou YOLO) pour restreindre le flot à une zone utile.
+2. **Brique dynamique** : flot optique (Farnebäck ou RAFT), filtrage (seuillage, soustraction du fond), puis extraction de **métriques** (vitesse, direction dominante, concentration).
+3. **Jeu de données unifié** : pose/cinématique + features de flot par sample, alimentant un **manifest** (`manifest.csv`) et des modèles de classification.
+4. **Modèles** : CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt, Temporal ViT (flow frames), entraînés via un script unique (`doma-train`) et évalués en live via `doma-live-classifier`.
+
+Les labels de gestes IPN Hand sont définis dans `config/labels.py` (LABELS, LABEL_TO_TEXT, LABEL_TO_ID).
+
+---
+
+## Structure du projet
+
+```
+├── config/                 # Configuration (labels, datasets)
+├── data/
+│   ├── raw/                # Données brutes (vidéos, index, annotations)
+│   ├── processed/          # manifest.csv, pose/*.npz, optflow/*.npz
+│   └── interim/            # Artefacts intermédiaires
+├── doma/
+│   ├── cli.py              # doma-live (démo flot)
+│   ├── detectors.py        # Manual ROI, MediaPipe, YOLO
+│   ├── flow.py             # Farnebäck, RAFT
+│   ├── motion.py           # Métriques de mouvement
+│   ├── dataloaders/        # build_dataloaders, build_dataloaders_stgcn
+│   ├── datasets/           # Construction dataset (IPN Hand)
+│   ├── modeling/           # train.py (registry, run_train)
+│   ├── models/             # cnn_lstm, temporal_transformer, stgcn, stgcn_opt, temporal_vit
+│   ├── live_classifier.py  # doma-live-classifier (inférence temps réel)
+│   └── tools/              # analyze_live_logs
+├── docs/                   # Guides (création dataset, entraînement, rapports)
+├── models/                 # Runs d’entraînement (run_id/best.pt, metrics.json, …)
+├── notebooks/              # Exploration et vérifications
+├── scripts/                # Utilitaires (datasets, analyse)
+└── pyproject.toml          # Dépendances et points d’entrée CLI
 ```
 
-## 1) Détection de la main (brique sémantique)
+---
 
-### A. Détecteur générique type YOLO (bounding box)
-- **Sortie**: `bbox + score + classe`.
-- **Avantages**
-  - **Rapidité** et bonne robustesse générale.
-  - **Simple**: une bbox suffit pour restreindre le flot à une zone utile.
-  - **Extensible**: multi-objets (main, personne, etc.) si le modèle le permet.
-- **Inconvénients**
-  - **Fond inclus** dans la bbox (pixels statiques → bruit; caméra mobile → flot “fond”).
-  - **Pas de structure** (pas de landmarks) → moins adapté aux gestes fins.
+## Prérequis et installation
 
-### B. Détecteur spécialisé MediaPipe Hands (landmarks / squelette)
-- **Sortie**: **21 landmarks** (et un tracking temporel implicite).
-- **Avantages**
-  - **Sélection fine du flot**: masque via **convex hull** des landmarks (bien moins de fond qu’une bbox).
-  - **Descripteurs gestes**: angles/écartement doigts, orientation paume, etc.
-  - **Stabilité**: souvent moins de “jitter” qu’une bbox brute.
-- **Inconvénients**
-  - Peut décrocher en cas d’**occultations**, poses extrêmes, gants, etc.
-  - Multi-mains: gestion d’ID à prévoir si nécessaire.
-
-### Recommandation pragmatique
-- **Premier prototype orienté “main”**: **MediaPipe Hands** (meilleur signal utile, filtrage plus simple).
-- **Prototype généraliste / multi-objets**: **YOLO** + filtrage robuste dans la bbox.
-
-### Réduire l’impact du fond si on n’a qu’une bbox
-1. **Masque de mouvement** via magnitude du flot (seuil fixe ou adaptatif).
-2. **Soustraction du mouvement global** (médiane robuste de `(u,v)` dans la ROI) pour limiter l’effet caméra/fond.
-3. **Plus grand composant connexe** dans le masque de mouvement (retire les pixels parasites dispersés).
-
-## 2) Choix de l’algorithme de flot optique (moteur de mouvement)
-
-### A. Lucas–Kanade (sparse, local)
-- **Principe**: conservation de luminance + linéarisation \(I_x u + I_y v + I_t = 0\), résolu en moindres carrés dans une fenêtre autour de **points d’intérêt**.
-- **Type de flot**: **sparse** (vecteurs sur features trackées).
-- **Pour la vitesse moyenne**: efficace si la main contient assez de texture/coins; instable sinon (peu de points, blur).
-
-### B. Farnebäck (dense, classique)
-- **Principe**: approximation polynomiale locale (quadratique) + pyramide multi-échelle.
-- **Avantages**: **dense**, bon compromis **précision/coût**, très pratique via OpenCV.
-- **Limites**: sensible au flou / grands déplacements; mélange main/fond aux frontières → filtrage indispensable.
-
-### C. RAFT (deep learning)
-- **Principe**: volume de corrélation + raffinement itératif (update operator).
-- **Robustesse**: meilleur sur grands déplacements et blur (selon modèle).
-- **Contraintes**: dépendances PyTorch, GPU recommandé si on vise le temps réel.
-
-### Recommandation hiérarchisée
-- **Prototype CPU**: Farnebäck + filtrage robuste.
-- **Baseline légère**: LK pyramidal (comparatif).
-- **Version robuste**: RAFT (comparaison qualité vs coût).
-
-## 3) Association et filtrage du flot (cœur mathématique)
-
-### Algorithme (bbox ou masque)
-1. **Extraire le flot** dans la ROI (bbox) ou appliquer le **masque** (MediaPipe hull).
-2. **Magnitude** \(m=\sqrt{u^2+v^2}\) et **angle** \(\theta=\text{atan2}(v,u)\).
-3. **Seuil** \(m>\tau\)
-   - fixe (webcam stable), ou
-   - adaptatif (Otsu sur \(m\), ou \(\\tau=\\text{median}(m)+k\\cdot\\text{MAD}(m)\)).
-4. **Masque de mouvement** + morphologie (ouvrir/fermer) + **plus grand composant**.
-5. **Supprimer le fond**: estimer \(\vec{w}_{bg}\) (médiane robuste) et soustraire \(\vec{w}\leftarrow\vec{w}-\vec{w}_{bg}\).
-6. **Vélocité**: moyenne/quantiles de \(m\) sur pixels valides.
-7. **Direction dominante (angles cycliques)**: moyenne circulaire pondérée
-   - \(C=\sum w_i\cos\theta_i\), \(S=\sum w_i\sin\theta_i\), \(\theta^*=\text{atan2}(S,C)\)
-   - concentration \(R=\\frac{\\sqrt{C^2+S^2}}{\\sum w_i}\) (si faible → mouvement non directionnel/oscillation/bruit).
-
-## 4) Plan de développement (PoC → robuste)
-
-### Étape 1 — ROI manuelle + Farnebäck
-- **Objectif**: valider “flot → filtrage → métriques → viz”.
-- **Validé**: vitesse(t) cohérente, direction stable en translation, bruit fortement réduit par seuil adaptatif.
-
-### Étape 2 — Détection YOLO (bbox)
-- **Objectif**: automatiser ROI.
-- **Validé**: stabilité bbox, filtrage fond dans bbox, FPS raisonnable.
-
-### Étape 3 — RAFT (comparaison)
-- **Objectif**: robustesse grands déplacements / blur.
-- **Validé**: cohérence flot sur main, stabilité métriques, analyse coût/latence.
-
-## Exécuter
-
-### Installation (Poetry)
-```bash
-poetry install
-```
-
-### Démo live (ROI manuelle par défaut)
-```bash
-poetry run doma-live --source 0 --flow farneback --detector manual
-```
-
-### MediaPipe Hands (optionnel)
-```bash
-poetry install -E hand
-poetry run doma-live --source 0 --flow farneback --detector mediapipe
-```
-
-### YOLO (optionnel, nécessite un modèle compatible “hand” ou une classe pertinente)
-```bash
-poetry install -E yolo
-poetry run doma-live --source 0 --flow farneback --detector yolo
-```
-
-### RAFT (optionnel)
-```bash
-poetry install -E raft
-poetry run doma-live --source 0 --flow raft --detector mediapipe
-```
-
-
-## Dataset unifié (IPN Hand / Jester / MS-ASL / WLASL)
-
-Le pipeline dataset produit deux sorties par sample:
-- **Pose/Kinematics**: tenseur cinématique (timestamps + pos/vel/acc) + landmarks (optionnel)
-- **Optical-flow features**: métriques temporelles (vitesse, direction dominante, concentration, etc.)
-
-Guide complet: `docs/DATASET_CREATION.md`.
-
-### Installation
+- **Python** 3.12+
+- **Poetry** ou **uv** pour l’environnement
 
 ```bash
-poetry install -E hand -E dataset
+# Installation de base
+uv sync
+
+# Avec options (détection main, dataset, entraînement)
+uv sync --extra hand --extra dataset --extra train
 ```
 
-### Build (subset)
+Commandes CLI exposées : `doma-live`, `doma-build-dataset`, `doma-train`, `doma-live-classifier`.
+
+---
+
+## Données
+
+Le projet utilise le jeu de données **[IPN Hand](https://gibranbenitez.github.io/IPN_Hand/)**, un benchmark vidéo pour la reconnaissance continue de gestes de la main : plus de **4 000 séquences de gestes** et **800 000 frames** (50 sujets), conçu pour l’interaction avec des écrans sans contact. Les vidéos sont en **640×480 à 30 fps** ; le pipeline produit, par sample, des artefacts normalisés à partir de ces vidéos.
+
+### Labels IPN Hand
+
+Les **14 classes** (1 non-geste + 13 gestes) et leur description sont définies dans `config/labels.py` (LABELS, LABEL_TO_TEXT, LABEL_TO_ID) :
+
+| Id | Label | Description |
+|----|-------|-------------|
+| 0 | D0X | Non-gesture |
+| 1 | B0A | Pointing with one finger |
+| 2 | B0B | Pointing with two fingers |
+| 3 | G01 | Click with one finger |
+| 4 | G02 | Click with two fingers |
+| 5 | G03 | Throw up |
+| 6 | G04 | Throw down |
+| 7 | G05 | Throw left |
+| 8 | G06 | Throw right |
+| 9 | G07 | Open twice |
+| 10 | G08 | Double click with one finger |
+| 11 | G09 | Double click with two fingers |
+| 12 | G10 | Zoom in |
+| 13 | G11 | Zoom out |
+
+Référence : [IPN Hand – Details](https://gibranbenitez.github.io/IPN_Hand/), article ICPR 2020.
+
+### Aperçu du dataset IPN Hand (original)
+
+Exemples de gestes :
+
+<p align="center">
+  <img src="docs/images/c1.gif" width="140" /> <img src="docs/images/c2.gif" width="140" /> <img src="docs/images/c3.gif" width="140" /> <img src="docs/images/c4.gif" width="140" /> <img src="docs/images/c5.gif" width="140" />
+</p>
+<p align="center">
+  <img src="docs/images/c6.gif" width="140" /> <img src="docs/images/c7.gif" width="140" /> <img src="docs/images/c8.gif" width="140" /> <img src="docs/images/c9.gif" width="140" /> <img src="docs/images/c10.gif" width="140" />
+</p>
+<p align="center">
+  <img src="docs/images/c11.gif" width="140" /> <img src="docs/images/c12.gif" width="140" /> <img src="docs/images/c13.gif" width="140" />
+</p>
+
+### Sorties du pipeline
+
+Pour chaque sample (segment vidéo IPN Hand), le pipeline génère :
+
+- **Pose / cinématique** : `pose_*.npz` — position, vitesse et accélération du track 3D, optionnellement les 21 landmarks main (MediaPipe).
+- **Flot optique** : `optflow_*.npz` — métriques temporelles (vitesse moyenne/max, direction dominante, concentration, seuil, etc.).
+
+Un **manifest** (`data/processed/manifest.csv`) regroupe tous les samples avec les colonnes : `sample_id`, `split`, `label`, `pose_npz`, `optflow_npz`. Les chemins sont relatifs à la racine du projet.
+
+### Création du dataset
+
+- **Guide détaillé** : `docs/DATASET_CREATION.md`.
+- **Configuration** : `config/datasets.yaml` (section `ipn_hand`).
+
+Exemple de construction d’un sous-ensemble à partir des vidéos brutes dans `data/raw/ipn_hand/` :
 
 ```bash
-poetry run doma-build-dataset --config config/datasets.yaml --only ipn_hand,jester --subset 10
+uv run doma-build-dataset --config config/datasets.yaml --only ipn_hand --subset 10
 ```
 
-### MS-ASL / WLASL (download)
+---
 
-Prérequis: `yt-dlp` + `ffmpeg` dans le PATH.
-
-```bash
-poetry run doma-build-dataset --config config/datasets.yaml --only ms_asl,wlasl --download --subset 10
-```
 ## Entraînement
 
-### Installation
+Un seul point d’entrée : **`doma-train`**. Le script choisit le dataloader et le format de batch selon le modèle.
+
+### Modèles
+
+| Modèle                 | Description                                      | Données        |
+|------------------------|--------------------------------------------------|----------------|
+| `temporal_transformer` | Transformer sur séquence pose+optflow            | Manifest |
+| `cnn_lstm`             | CNN + LSTM sur features unifiées                 | Manifest |
+| `stgcn`                | GCN spatio-temporel (skeleton + motion)          | Manifest |
+| `stgcn_opt`            | Multi-branches (ST-GCN + track + optflow)        | Manifest |
+| `temporal_vit`         | Vision Transformer sur frames de flot            | Raw IPN flow |
+
+### Entraînement
 
 ```bash
-poetry install -E train -E hand -E dataset
+# Depuis la racine du projet
+uv run doma-train --model temporal_transformer --manifest data/processed/manifest.csv --epochs 20 --batch-size 32 --output-dir models
+uv run doma-train --model stgcn --epochs 20 --batch-size 32 --output-dir models
+uv run doma-train --model cnn_lstm --epochs 20 --batch-size 32 --output-dir models
 ```
 
-### Lancer un entraînement : 
+Options utiles : `--root-dir`, `--split-mode` (train_val_test | train_test), `--max-len`, `--lr`, `--save-best-by` (accuracy | f1_macro | f1_weighted).
 
-```bash
-uv run doma-train --model cnn_lstm --manifest data/processed/manifest.csv --epochs 20 --batch-size 32
-```
+Chaque run crée un répertoire horodaté sous `models/` (ex. `models/stgcn_20260307_224459/`) contenant : `best.pt`, `metrics.json`, `train_log.log`, `model_config.json`, `train_config.json`, `label_map.json`, et selon le modèle `norm.npz`.
 
-### Générer le rapport : 
+**Guide complet** : `docs/TRAINING_GUIDE.md`.
 
-```bash
-poetry run doma-train report --run runs/<run_name> --out docs/REPORT_CNN_LSTM.md
-```
+---
 
+## Inférence en direct
 
-## Lancer le PoC webcam + HUD : 
+Classification de gestes en temps réel à partir de la webcam (ou d’une vidéo), avec un run entraîné (CNN-LSTM ou Temporal Transformer recommandés pour le live) :
 
 ```bash
 uv run doma-live-classifier --run models/<run_id> --source 0
 ```
-Quitter: touche q
-Reset manuel: touche r
 
-### Logs automatiques (recommandé)
+- **Quitter** : touche `q`
+- **Reset** : touche `r`
 
-Par défaut, une session est loggée dans `doma/sessions/live_YYYYmmdd-HHMMSS/`:
-- `report_live_*.csv` (par frame, avec la prédiction courante + top-k)
-- `report_live_*.txt` (config + résumé)
-- `dump_live_*.npz` (x_seq + probs/ema_probs par inférence)
+Options utiles : `--window-ms`, `--infer-every-ms`, `--ema`, `--d0x-thr`, `--mirror-view` / `--flip-features`, `--log` / `--no-log`, `--log-dir`. Les sessions sont enregistrées par défaut sous `doma/sessions/` (CSV, TXT, optionnel NPZ).
 
-Désactiver les logs:
+---
 
-```bash
-poetry run doma-live-classifier --no-log --run runs/<run_name> --source 0
-```
+## Analyse des logs
 
-Changer la racine des sessions:
+Résumé d’une session live (métriques, latence) :
 
 ```bash
-poetry run doma-live-classifier --log-dir doma/sessions --run runs/<run_name> --source 0
+uv run python -m doma.tools.analyze_live_logs --csv doma/sessions/<session>/report_*.csv --out doma/sessions/<session>/analysis_summary.json
 ```
 
-### Paramètres utiles (latence/stabilité)
-- `--window-ms`: taille de fenêtre (ex: 600–1200)
-- `--infer-every-ms`: stride d’inférence (ex: 50–200)
-- `--ema`: smoothing (0.0–0.3 pour clicks, 0.5–0.7 pour gestes longs)
-- `--d0x-thr`: seuil d’affichage idle (D0X)
-
-### Flip (important)
-- `--mirror-view/--no-mirror-view`: miroir affichage (HUD)
-- `--flip-features/--no-flip-features`: miroir appliqué aux features (doit être cohérent avec vos données / votre protocole)
-
-## Analyse des logs live (latence / stabilité / confusion)
-
-Analyser un `report_*.csv` (résumé JSON):
+Avec segments annotés (CSV : `t_start_ms,t_end_ms,label`) pour confusion et latence :
 
 ```bash
-poetry run python -m doma.tools.analyze_live_logs --csv doma/sessions/<session>/report_*.csv --out doma/sessions/<session>/analysis_summary.json
+uv run python -m doma.tools.analyze_live_logs --csv doma/sessions/<session>/report_*.csv --segments segments.csv --out doma/sessions/<session>/analysis_with_segments.json
 ```
 
-### Confusion + latence avec segments (benchmark reproductible)
+---
 
-Optionnel: fournir un CSV de segments annotés (temps en **ms relatifs** au début de la session):
-- colonnes: `t_start_ms,t_end_ms,label`
+## Documentation
 
-Exemple `segments.csv`:
+| Document | Contenu |
+|----------|---------|
+| `docs/DATASET_CREATION.md` | Création du dataset IPN Hand |
+| `docs/TRAINING_GUIDE.md`   | Dataloaders, entraînement, modèles (ST-GCN, Temporal Transformer, etc.) |
+| `config/labels.py`         | Labels de gestes (LABELS, LABEL_TO_TEXT, LABEL_TO_ID) |
 
-```csv
-t_start_ms,t_end_ms,label
-0,1500,D0X
-1500,2600,G01
-2600,3600,D0X
-```
+---
 
-Analyse avec segments:
+## Références
 
-```bash
-poetry run python -m doma.tools.analyze_live_logs --csv doma/sessions/<session>/report_*.csv --segments segments.csv --out doma/sessions/<session>/analysis_with_segments.json
-```
+- **IPN Hand** : [gibranbenitez.github.io/IPN_Hand](https://gibranbenitez.github.io/IPN_Hand/)
+- Détection : MediaPipe Hands, YOLO (Ultralytics). Flot : Farnebäck (OpenCV), RAFT.
 
-## Benchmark live reproductible (procédure)
+---
 
-1) Enregistrer une vidéo “scriptée” (ordre fixe, pauses `D0X` entre gestes).\n
-2) Rejouer cette vidéo via `--source <video>` (mêmes entrées => comparaison fiable).\n
-3) Comparer les réglages (window/stride/ema/flip) via `analysis_summary.json` (stabilité) et `analysis_with_segments.json` (confusion + latence).
+*Projet DOMA — Analyse du mouvement par flot optique et classification de gestes.*
