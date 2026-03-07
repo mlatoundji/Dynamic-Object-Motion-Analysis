@@ -10,16 +10,27 @@ from .utils import save_json
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Train/evaluate CNN-LSTM gesture classifier (IPN Hand)")
+    p = argparse.ArgumentParser(
+        description="Train/evaluate CNN-LSTM gesture classifier (IPN Hand)"
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     p_train = sub.add_parser("train", help="Train a model from a manifest.csv")
     p_train.add_argument("--manifest", default="data/processed/manifest.csv")
     p_train.add_argument("--out", default="runs")
-    p_train.add_argument("--name", default="", help="Run name (default: timestamped)")
+    p_train.add_argument(
+        "--name",
+        default="",
+        help="Run name (default: timestamped)",
+    )
     p_train.add_argument("--seed", type=int, default=0)
     p_train.add_argument("--device", default="auto")
-    p_train.add_argument("--dt-ms", type=float, default=33.333, help="Regular sampling interval used by live PoC")
+    p_train.add_argument(
+        "--dt-ms",
+        type=float,
+        default=33.333,
+        help="Regular sampling interval used by live PoC",
+    )
     p_train.add_argument("--batch", type=int, default=32)
     p_train.add_argument("--epochs", type=int, default=20)
     p_train.add_argument("--lr", type=float, default=3e-4)
@@ -38,21 +49,43 @@ def main(argv: list[str] | None = None) -> int:
     p_train.add_argument("--lstm-layers", type=int, default=1)
     p_train.add_argument("--no-bidir", action="store_true")
     p_train.add_argument("--dropout", type=float, default=0.2)
+    p_train.add_argument(
+        "--init-ckpt",
+        default="",
+        help=(
+            "Optional checkpoint to initialize weights "
+            "(e.g. runs/.../checkpoints/best.pt)"
+        ),
+    )
 
     p_eval = sub.add_parser("eval", help="Evaluate a checkpoint on a split")
     p_eval.add_argument("--ckpt", required=True, help="Path to checkpoint (best.pt)")
     p_eval.add_argument("--manifest", default="data/processed/manifest.csv")
-    p_eval.add_argument("--split", default="test", choices=["train", "val", "test"])
+    p_eval.add_argument(
+        "--split",
+        default="test",
+        choices=["train", "val", "test"],
+    )
     p_eval.add_argument("--device", default="auto")
     p_eval.add_argument("--batch", type=int, default=64)
     p_eval.add_argument("--no-landmarks", action="store_true")
     p_eval.add_argument("--no-optflow", action="store_true")
     p_eval.add_argument("--no-pose", action="store_true")
-    p_eval.add_argument("--out", default="", help="Write JSON metrics to this path (optional)")
+    p_eval.add_argument(
+        "--out",
+        default="",
+        help="Write JSON metrics to this path (optional)",
+    )
 
-    p_report = sub.add_parser("report", help="Generate a Markdown report from a run directory")
+    p_report = sub.add_parser(
+        "report", help="Generate a Markdown report from a run directory"
+    )
     p_report.add_argument("--run", required=True, help="Run directory (e.g. runs/classify_...)")
-    p_report.add_argument("--out", default="docs/REPORT_CNN_LSTM.md", help="Markdown output path")
+    p_report.add_argument(
+        "--out",
+        default="docs/REPORT_CNN_LSTM.md",
+        help="Markdown output path",
+    )
 
     args = p.parse_args(argv)
 
@@ -83,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
             lstm_layers=int(args.lstm_layers),
             bidirectional=not bool(args.no_bidir),
             dropout=float(args.dropout),
+            init_ckpt=str(args.init_ckpt),
         )
         run_dir = train_run(cfg, rows=rows, label_to_idx=label_to_idx)
         print(str(run_dir))
