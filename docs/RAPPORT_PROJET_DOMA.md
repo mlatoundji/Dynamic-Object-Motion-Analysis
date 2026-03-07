@@ -285,7 +285,7 @@ Cela justifie un **ré-entraînement ciblé** (finetuning) sur le mini-dataset a
   - `manifest_csv`: `data/annotated/live_20260307-135942/manifest.splits.csv`  
   - epochs 30, batch 16, lr 0.0001, dropout 0.3.
 
-**Chargement du checkpoint** — [doma/modeling/train.py](../doma/modeling/train.py) : si `init_ckpt` est renseigné, `torch.load(ckpt_path)` et `model.load_state_dict(ckpt["model"], strict=True)` pour initialiser le modèle avant l'entraînement., `torch.load(ckpt_path)` et `model.load_state_dict(ckpt["model"], strict=True)` pour initialiser le modèle avant l’entraînement.
+**Chargement du checkpoint** — [doma/modeling/train.py](../doma/modeling/train.py) : si `init_ckpt` est renseigné, `torch.load(ckpt_path)` et `model.load_state_dict(ckpt["model"], strict=True)` pour initialiser le modèle avant l'entraînement.
 
 **Métriques** :
 

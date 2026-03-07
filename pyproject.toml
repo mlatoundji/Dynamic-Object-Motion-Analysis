@@ -54,6 +54,7 @@ vit = [
 
 [project.scripts]
 doma-live = "doma.cli:main"
+doma-build-dataset = "doma.datasets.cli:main"
 doma-train = "doma.modeling.train:main"
 doma-live-classifier = "doma.live_classifier:main"
 

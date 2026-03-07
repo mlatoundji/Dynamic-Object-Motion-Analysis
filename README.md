@@ -168,7 +168,7 @@ poetry install -E train -E hand -E dataset
 ### Lancer un entraînement : 
 
 ```bash
-poetry run doma-train train --manifest data/processed/manifest.csv --epochs 20 --batch 32
+uv run doma-train --model cnn_lstm --manifest data/processed/manifest.csv --epochs 20 --batch-size 32
 ```
 
 ### Générer le rapport : 
@@ -181,7 +181,7 @@ poetry run doma-train report --run runs/<run_name> --out docs/REPORT_CNN_LSTM.md
 ## Lancer le PoC webcam + HUD : 
 
 ```bash
-poetry run doma-live-classifier --run runs/<run_name> --source 0
+uv run doma-live-classifier --run models/<run_id> --source 0
 ```
 Quitter: touche q
 Reset manuel: touche r
