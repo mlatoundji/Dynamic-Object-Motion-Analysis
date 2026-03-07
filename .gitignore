@@ -2,7 +2,6 @@
 .venv
 .mediapipe_models
 __pycache__/
-uv.lock
 *.pt
 .docs/
 
