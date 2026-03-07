@@ -141,7 +141,7 @@ Guide complet: `docs/DATASET_CREATION.md`.
 ### Installation
 
 ```bash
-poetry install -E dataset -E hand
+poetry install -E hand -E dataset
 ```
 
 ### Build (subset)
@@ -157,10 +157,94 @@ Prérequis: `yt-dlp` + `ffmpeg` dans le PATH.
 ```bash
 poetry run doma-build-dataset --config configs/datasets.yaml --only ms_asl,wlasl --download --subset 10
 ```
+## Entraînement
 
-## Synthétique (angles caméra complexes)
+### Installation
 
-- Blender: `synthetic/blender/README.md`
-- Unreal: `synthetic/unreal/README.md`
+```bash
+poetry install -E train -E hand -E dataset
+```
+
+### Lancer un entraînement : 
+
+```bash
+poetry run doma-train train --manifest data/processed/manifest.csv --epochs 20 --batch 32
+```
+
+### Générer le rapport : 
+
+```bash
+poetry run doma-train report --run runs/<run_name> --out docs/REPORT_CNN_LSTM.md
+```
 
 
+## Lancer le PoC webcam + HUD : 
+
+```bash
+poetry run doma-live-classifier --run runs/<run_name> --source 0
+```
+Quitter: touche q
+Reset manuel: touche r
+
+### Logs automatiques (recommandé)
+
+Par défaut, une session est loggée dans `doma/sessions/live_YYYYmmdd-HHMMSS/`:
+- `report_live_*.csv` (par frame, avec la prédiction courante + top-k)
+- `report_live_*.txt` (config + résumé)
+- `dump_live_*.npz` (x_seq + probs/ema_probs par inférence)
+
+Désactiver les logs:
+
+```bash
+poetry run doma-live-classifier --no-log --run runs/<run_name> --source 0
+```
+
+Changer la racine des sessions:
+
+```bash
+poetry run doma-live-classifier --log-dir doma/sessions --run runs/<run_name> --source 0
+```
+
+### Paramètres utiles (latence/stabilité)
+- `--window-ms`: taille de fenêtre (ex: 600–1200)
+- `--infer-every-ms`: stride d’inférence (ex: 50–200)
+- `--ema`: smoothing (0.0–0.3 pour clicks, 0.5–0.7 pour gestes longs)
+- `--d0x-thr`: seuil d’affichage idle (D0X)
+
+### Flip (important)
+- `--mirror-view/--no-mirror-view`: miroir affichage (HUD)
+- `--flip-features/--no-flip-features`: miroir appliqué aux features (doit être cohérent avec vos données / votre protocole)
+
+## Analyse des logs live (latence / stabilité / confusion)
+
+Analyser un `report_*.csv` (résumé JSON):
+
+```bash
+poetry run python -m doma.tools.analyze_live_logs --csv doma/sessions/<session>/report_*.csv --out doma/sessions/<session>/analysis_summary.json
+```
+
+### Confusion + latence avec segments (benchmark reproductible)
+
+Optionnel: fournir un CSV de segments annotés (temps en **ms relatifs** au début de la session):
+- colonnes: `t_start_ms,t_end_ms,label`
+
+Exemple `segments.csv`:
+
+```csv
+t_start_ms,t_end_ms,label
+0,1500,D0X
+1500,2600,G01
+2600,3600,D0X
+```
+
+Analyse avec segments:
+
+```bash
+poetry run python -m doma.tools.analyze_live_logs --csv doma/sessions/<session>/report_*.csv --segments segments.csv --out doma/sessions/<session>/analysis_with_segments.json
+```
+
+## Benchmark live reproductible (procédure)
+
+1) Enregistrer une vidéo “scriptée” (ordre fixe, pauses `D0X` entre gestes).\n
+2) Rejouer cette vidéo via `--source <video>` (mêmes entrées => comparaison fiable).\n
+3) Comparer les réglages (window/stride/ema/flip) via `analysis_summary.json` (stabilité) et `analysis_with_segments.json` (confusion + latence).
