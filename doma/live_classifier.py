@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import time
 from collections import deque
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -22,6 +24,194 @@ except Exception:  # pragma: no cover
 
 from .train.data import FeatureConfig, NormStats
 from .train.model import CNNLSTMClassifier, ModelConfig
+
+
+def _now_ms() -> float:
+    return float(time.time() * 1000.0)
+
+
+def _bbox_center_norm(bbox, *, width: int, height: int) -> tuple[float, float]:
+    cx = (float(bbox.x) + 0.5 * float(bbox.w)) / max(1.0, float(width))
+    cy = (float(bbox.y) + 0.5 * float(bbox.h)) / max(1.0, float(height))
+    return cx, cy
+
+
+def _bbox_iou(a, b) -> float:
+    ax1, ay1 = float(a.x), float(a.y)
+    ax2, ay2 = float(a.x + a.w), float(a.y + a.h)
+    bx1, by1 = float(b.x), float(b.y)
+    bx2, by2 = float(b.x + b.w), float(b.y + b.h)
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+    inter = iw * ih
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    denom = area_a + area_b - inter
+    if denom <= 1e-9:
+        return 0.0
+    return float(inter / denom)
+
+
+def _map_bbox_x_for_display(bbox, *, frame_w: int) -> int:
+    # Horizontal flip mapping: x' = W - (x + w)
+    return int(frame_w - (int(bbox.x) + int(bbox.w)))
+
+
+class _SessionLogger:
+    def __init__(
+        self,
+        *,
+        out_dir: Path,
+        run_dir: Path,
+        args: argparse.Namespace,
+        labels_sorted: list[str],
+    ) -> None:
+        self.out_dir = out_dir
+        self.run_dir = run_dir
+        self.args = args
+        self.labels_sorted = list(labels_sorted)
+
+        self.session_id = time.strftime("live_%Y%m%d-%H%M%S")
+        self.out_dir = (self.out_dir / self.session_id).resolve()
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+
+        self.csv_path = self.out_dir / f"report_{self.session_id}.csv"
+        self.txt_path = self.out_dir / f"report_{self.session_id}.txt"
+        self.npz_path = self.out_dir / f"dump_{self.session_id}.npz"
+
+        self._csv_f = self.csv_path.open("w", encoding="utf-8", newline="")
+        self._csv = csv.DictWriter(self._csv_f, fieldnames=self._csv_fields())
+        self._csv.writeheader()
+        self._csv_f.flush()
+
+        # Inference dumps (per inference)
+        self.infer_t_ms: list[float] = []
+        self.infer_lengths: list[int] = []
+        self.infer_x_seq: list[np.ndarray] = []
+        self.infer_probs: list[np.ndarray] = []
+        self.infer_ema_probs: list[np.ndarray] = []
+
+        self.frames = 0
+        self.infers = 0
+        self.resets = 0
+        self.infer_ms_sum = 0.0
+        self.pred_counts: dict[str, int] = {}
+
+        self._write_txt_header()
+
+    def _csv_fields(self) -> list[str]:
+        return [
+            "t_wall_ms",
+            "frame_idx",
+            "fps_ema",
+            "did_infer",
+            "infer_ms",
+            "reset_reason",
+            "hand_side",
+            "pose_valid",
+            "flow_valid",
+            "bbox_x",
+            "bbox_y",
+            "bbox_w",
+            "bbox_h",
+            "bbox_score",
+            "bbox_cx_norm",
+            "bbox_cy_norm",
+            "avg_speed",
+            "max_speed",
+            "dominant_angle_deg",
+            "direction_concentration",
+            "n_pixels",
+            "threshold",
+            "pred_label",
+            "pred_idx",
+            "pred_p",
+            "ema_alpha",
+            "topk_labels",
+            "topk_ps",
+        ]
+
+    def _write_txt_header(self) -> None:
+        payload = {
+            "session_id": self.session_id,
+            "created_wall_ms": _now_ms(),
+            "run_dir": str(self.run_dir.as_posix()),
+            "session_dir": str(self.out_dir.as_posix()),
+            "cmd": "doma-live-classifier",
+            "args": vars(self.args),
+            "labels_sorted": self.labels_sorted,
+        }
+        self.txt_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def log_frame(self, row: dict[str, Any]) -> None:
+        self.frames += 1
+        if str(row.get("reset_reason") or ""):
+            self.resets += 1
+        self._csv.writerow(row)
+        if (self.frames % 30) == 0:
+            self._csv_f.flush()
+
+    def log_infer(
+        self,
+        *,
+        t_wall_ms: float,
+        length: int,
+        x_seq: np.ndarray,
+        probs: np.ndarray,
+        ema_probs: np.ndarray,
+        infer_ms: float,
+        pred_label: str,
+        reset_reason: str | None,
+    ) -> None:
+        self.infers += 1
+        self.infer_ms_sum += float(infer_ms)
+        self.pred_counts[pred_label] = int(self.pred_counts.get(pred_label, 0)) + 1
+
+        if bool(getattr(self.args, "dump_npz", False)):
+            self.infer_t_ms.append(float(t_wall_ms))
+            self.infer_lengths.append(int(length))
+            self.infer_x_seq.append(np.asarray(x_seq, dtype=np.float32))
+            self.infer_probs.append(np.asarray(probs, dtype=np.float32))
+            self.infer_ema_probs.append(np.asarray(ema_probs, dtype=np.float32))
+
+    def finalize(self) -> None:
+        try:
+            self._csv_f.flush()
+        finally:
+            self._csv_f.close()
+
+        if bool(getattr(self.args, "dump_npz", False)) and self.infers > 0:
+            x_obj = np.asarray(self.infer_x_seq, dtype=object)
+            probs = np.stack(self.infer_probs, axis=0).astype(np.float32)
+            ema = np.stack(self.infer_ema_probs, axis=0).astype(np.float32)
+            np.savez_compressed(
+                self.npz_path,
+                infer_t_wall_ms=np.asarray(self.infer_t_ms, dtype=np.float64),
+                lengths=np.asarray(self.infer_lengths, dtype=np.int32),
+                x_seq_list=x_obj,
+                probs_list=probs,
+                ema_probs_list=ema,
+                labels_sorted=np.asarray(self.labels_sorted, dtype=object),
+            )
+
+        # Append summary to txt
+        avg_infer_ms = (self.infer_ms_sum / float(self.infers)) if self.infers else 0.0
+        summary = {
+            "frames": int(self.frames),
+            "infers": int(self.infers),
+            "avg_infer_ms": float(avg_infer_ms),
+            "resets": int(self.resets),
+            "pred_counts": dict(sorted(self.pred_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+            "csv_path": str(self.csv_path.as_posix()),
+            "npz_path": (str(self.npz_path.as_posix()) if bool(getattr(self.args, "dump_npz", False)) else None),
+        }
+        with self.txt_path.open("a", encoding="utf-8") as f:
+            f.write("\n\n")
+            f.write(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _load_bundle(run_dir: Path) -> tuple[Path, NormStats, dict[str, int], float]:
@@ -303,9 +493,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--ema", type=float, default=0.6, help="EMA smoothing for probabilities (0=no smoothing)")
     p.add_argument("--d0x-thr", type=float, default=0.6, help="If P(D0X) >= thr, display D0X as idle")
     p.add_argument("--roi", type=int, default=224, help="ROI size (square) for optflow features")
+    p.add_argument("--mirror-view", action=argparse.BooleanOptionalAction, default=True, help="Mirror the display (HUD) horizontally")
+    p.add_argument("--flip-features", action=argparse.BooleanOptionalAction, default=True, help="Flip frames for feature extraction (match typical webcam mirror view)")
     p.add_argument("--no-landmarks", action="store_true")
     p.add_argument("--no-optflow", action="store_true")
     p.add_argument("--no-pose", action="store_true")
+    p.add_argument("--topk", type=int, default=5, help="Top-k predictions to show/log")
+
+    # Logging
+    p.add_argument("--log", action=argparse.BooleanOptionalAction, default=True, help="Enable session logging (CSV/TXT + optional NPZ)")
+    p.add_argument("--log-dir", default="doma/sessions", help="Root directory to store sessions under (a per-session subdir is created)")
+    p.add_argument("--dump-npz", action=argparse.BooleanOptionalAction, default=True, help="When logging, also dump x_seq + probs per inference (NPZ)")
+
+    # Auto-reset (prevents cross-hand contamination of state)
+    p.add_argument("--reset-lost-ms", type=float, default=600.0, help="Reset state after bbox is missing for this duration")
+    p.add_argument("--reset-iou-thr", type=float, default=0.10, help="Reset if bbox IoU drops below this threshold")
+    p.add_argument("--reset-center-jump", type=float, default=0.25, help="Reset if bbox center jumps more than this (normalized)")
+    p.add_argument("--reset-side-frames", type=int, default=3, help="Reset if hand side (L/R) changes for N consecutive frames")
     args = p.parse_args(argv)
 
     if torch is None:
@@ -314,6 +518,7 @@ def main(argv: list[str] | None = None) -> int:
     ckpt_path, norm, label_to_idx, dt_ms = _load_bundle(Path(args.run))
     idx_to_label = {v: k for k, v in label_to_idx.items()}
     label_desc = _load_label_descriptions()
+    labels_sorted = [lab for lab, _ in sorted(label_to_idx.items(), key=lambda kv: kv[1])]
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
     mcfg = ModelConfig(**ckpt["model_config"])
@@ -348,17 +553,62 @@ def main(argv: list[str] | None = None) -> int:
     buf = LiveBuffer(max_ms=float(args.window_ms))
     last_infer = 0.0
     ema_probs = None
+    last_probs = None
+    last_topk = None
+    last_pred_label = ""
+    last_pred_idx = -1
+    last_pred_p = float("nan")
+    last_infer_ms = float("nan")
 
     t0 = time.time()
     frame_idx = 0
     fps_ema = None
 
+    # Reset heuristics state
+    last_bbox = None
+    lost_since_ms: float | None = None
+    last_side: str | None = None
+    side_streak = 0
+
+    # Optional logging
+    logger: _SessionLogger | None = None
+    if bool(getattr(args, "log", False)):
+        base_dir = Path(str(args.log_dir)).expanduser()
+        if not base_dir.is_absolute():
+            base_dir = (_repo_root() / base_dir).resolve()
+        logger = _SessionLogger(
+            out_dir=base_dir,
+            run_dir=Path(args.run).resolve(),
+            args=args,
+            labels_sorted=labels_sorted,
+        )
+
+    def _reset_state(reason: str) -> None:
+        nonlocal prev_roi_gray, origin, buf, last_infer, ema_probs
+        nonlocal last_bbox, lost_since_ms, last_side, side_streak
+        prev_roi_gray = None
+        origin = None
+        buf = LiveBuffer(max_ms=float(args.window_ms))
+        last_infer = 0.0
+        ema_probs = None
+        last_bbox = None
+        lost_since_ms = None
+        last_side = None
+        side_streak = 0
+
+    def _hand_side_from_bbox(bbox, *, frame_w: int) -> str:
+        cx = (float(bbox.x) + 0.5 * float(bbox.w)) / max(1.0, float(frame_w))
+        return "L" if float(cx) < 0.5 else "R"
+
     while True:
-        ok, frame = cap.read()
+        ok, frame_raw = cap.read()
         if not ok:
             break
-        frame = cv2.flip(frame, 1)
-        disp = frame.copy()
+        frame_w = int(frame_raw.shape[1])
+        frame_h = int(frame_raw.shape[0])
+
+        frame_feat = cv2.flip(frame_raw, 1) if bool(args.flip_features) else frame_raw
+        disp = cv2.flip(frame_raw, 1).copy() if bool(args.mirror_view) else frame_raw.copy()
 
         now = time.time()
         fps = 0.0
@@ -368,8 +618,45 @@ def main(argv: list[str] | None = None) -> int:
         fps_ema = fps if fps_ema is None else (0.9 * fps_ema + 0.1 * fps)
         frame_idx += 1
 
-        bbox, mask, lm_xyz = det.detect_with_landmarks(frame)
+        bbox, mask, lm_xyz = det.detect_with_landmarks(frame_feat)
         pose_valid = bbox is not None and lm_xyz is not None
+
+        reset_reason = ""
+
+        if bbox is None:
+            if lost_since_ms is None:
+                lost_since_ms = _now_ms()
+            elif (_now_ms() - float(lost_since_ms)) >= float(args.reset_lost_ms):
+                reset_reason = "lost"
+                _reset_state(reset_reason)
+        else:
+            # We have a bbox: clear lost timer
+            lost_since_ms = None
+
+            # Jump / side-change detection
+            side = _hand_side_from_bbox(bbox, frame_w=frame_w)
+            if last_side is None:
+                last_side = side
+                side_streak = 0
+            elif side != last_side:
+                side_streak += 1
+                if side_streak >= int(args.reset_side_frames):
+                    reset_reason = "side_change"
+                    _reset_state(reset_reason)
+                    side = _hand_side_from_bbox(bbox, frame_w=frame_w)
+                    last_side = side
+            else:
+                side_streak = 0
+
+            if last_bbox is not None:
+                iou = _bbox_iou(last_bbox, bbox)
+                c0x, c0y = _bbox_center_norm(last_bbox, width=frame_w, height=frame_h)
+                c1x, c1y = _bbox_center_norm(bbox, width=frame_w, height=frame_h)
+                jump = float(np.hypot(c1x - c0x, c1y - c0y))
+                if (iou < float(args.reset_iou_thr)) or (jump > float(args.reset_center_jump)):
+                    reset_reason = "jump"
+                    _reset_state(reset_reason)
+            last_bbox = bbox
 
         track = np.full((3,), np.nan, dtype=np.float64)
         lm = np.full((21, 3), np.nan, dtype=np.float64)
@@ -388,10 +675,15 @@ def main(argv: list[str] | None = None) -> int:
         flow_valid = False
 
         if bbox is not None:
-            bbox = clip_bbox(bbox, width=frame.shape[1], height=frame.shape[0])
+            bbox = clip_bbox(bbox, width=frame_feat.shape[1], height=frame_feat.shape[0])
             x0, y0, w, h = int(bbox.x), int(bbox.y), int(bbox.w), int(bbox.h)
-            cv2.rectangle(disp, (x0, y0), (x0 + w, y0 + h), (0, 255, 255), 2)
-            roi = frame[y0:y0 + h, x0:x0 + w]
+            # Draw bbox on display (may have different flip than features)
+            x_disp = x0
+            if bool(args.mirror_view) ^ bool(args.flip_features):
+                x_disp = _map_bbox_x_for_display(bbox, frame_w=frame_w)
+            cv2.rectangle(disp, (x_disp, y0), (x_disp + w, y0 + h), (0, 255, 255), 2)
+
+            roi = frame_feat[y0:y0 + h, x0:x0 + w]
             roi = resize_keep_aspect(roi, size_hw=roi_size)
             roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
@@ -438,11 +730,13 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         # Inference throttling
+        did_infer = False
         if (now - last_infer) * 1000.0 >= float(args.infer_every_ms):
             last_infer = now
             x_seq, length = buf.build_sequence(dt_ms=dt_ms, feat_cfg=feat_cfg)
 
             if length > 0:
+                did_infer = True
                 # Standardize using training stats.
                 std = np.where(norm.std > 1e-8, norm.std, 1.0).astype(
                     np.float32
@@ -453,15 +747,24 @@ def main(argv: list[str] | None = None) -> int:
 
                 xt = torch.from_numpy(x_seq).unsqueeze(0)  # (1,T,F)
                 lt = torch.tensor([int(length)], dtype=torch.long)
+                t_inf0 = time.perf_counter()
                 with torch.no_grad():
                     logits = model(xt, lt)
-                    probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy().astype(np.float32)
+                    probs = (
+                        torch.softmax(logits, dim=1)
+                        .squeeze(0)
+                        .cpu()
+                        .numpy()
+                        .astype(np.float32)
+                    )
+                last_infer_ms = float((time.perf_counter() - t_inf0) * 1000.0)
 
                 if ema_probs is None or float(args.ema) <= 0:
                     ema_probs = probs
                 else:
                     a = float(args.ema)
                     ema_probs = a * ema_probs + (1.0 - a) * probs
+                last_probs = probs
 
         # HUD
         if ema_probs is not None:
@@ -486,9 +789,13 @@ def main(argv: list[str] | None = None) -> int:
                 2,
             )
 
-            # top-3
-            k = min(3, int(len(ema_probs)))
+            # top-k
+            k = min(int(max(1, args.topk)), int(len(ema_probs)))
             topk = np.argsort(-ema_probs)[:k]
+            last_topk = topk.tolist()
+            last_pred_label = str(top_label)
+            last_pred_idx = int(top)
+            last_pred_p = float(top_p)
             for i, idx in enumerate(topk.tolist()):
                 lab = str(idx_to_label.get(int(idx), str(idx)))
                 lab = _label_with_desc(lab, label_desc)
@@ -513,13 +820,83 @@ def main(argv: list[str] | None = None) -> int:
                 2,
             )
 
+        # Logging (per frame)
+        if logger is not None:
+            if bbox is not None:
+                cxn, cyn = _bbox_center_norm(bbox, width=frame_w, height=frame_h)
+                side = _hand_side_from_bbox(bbox, frame_w=frame_w)
+                bbox_score = float(getattr(bbox, "score", 1.0))
+                bx, by, bw, bh = int(bbox.x), int(bbox.y), int(bbox.w), int(bbox.h)
+            else:
+                cxn, cyn = float("nan"), float("nan")
+                side = ""
+                bbox_score = float("nan")
+                bx = by = bw = bh = -1
+
+            topk_labels = ""
+            topk_ps = ""
+            if ema_probs is not None and last_topk is not None:
+                labs = [str(idx_to_label.get(int(i), str(i))) for i in last_topk]
+                ps = [float(ema_probs[int(i)]) for i in last_topk]
+                topk_labels = "|".join(labs)
+                topk_ps = "|".join([f"{p:.6f}" for p in ps])
+
+            row = {
+                "t_wall_ms": float(now * 1000.0),
+                "frame_idx": int(frame_idx),
+                "fps_ema": float(fps_ema or 0.0),
+                "did_infer": int(1 if did_infer else 0),
+                "infer_ms": float(last_infer_ms if did_infer else float("nan")),
+                "reset_reason": str(reset_reason),
+                "hand_side": str(side),
+                "pose_valid": int(1 if bool(pose_valid) else 0),
+                "flow_valid": int(1 if bool(flow_valid) else 0),
+                "bbox_x": int(bx),
+                "bbox_y": int(by),
+                "bbox_w": int(bw),
+                "bbox_h": int(bh),
+                "bbox_score": float(bbox_score),
+                "bbox_cx_norm": float(cxn),
+                "bbox_cy_norm": float(cyn),
+                "avg_speed": float(flow_feats.get("avg_speed", np.nan)),
+                "max_speed": float(flow_feats.get("max_speed", np.nan)),
+                "dominant_angle_deg": float(flow_feats.get("dominant_angle_deg", np.nan)),
+                "direction_concentration": float(flow_feats.get("direction_concentration", np.nan)),
+                "n_pixels": float(flow_feats.get("n_pixels", 0.0)),
+                "threshold": float(flow_feats.get("threshold", np.nan)),
+                "pred_label": str(last_pred_label),
+                "pred_idx": int(last_pred_idx),
+                "pred_p": float(last_pred_p),
+                "ema_alpha": float(args.ema),
+                "topk_labels": str(topk_labels),
+                "topk_ps": str(topk_ps),
+            }
+            logger.log_frame(row)
+
+            if did_infer and last_probs is not None and ema_probs is not None:
+                logger.log_infer(
+                    t_wall_ms=float(now * 1000.0),
+                    length=int(length),
+                    x_seq=x_seq,
+                    probs=last_probs,
+                    ema_probs=ema_probs,
+                    infer_ms=float(last_infer_ms),
+                    pred_label=str(last_pred_label),
+                    reset_reason=(reset_reason or None),
+                )
+
         cv2.imshow(win, disp)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
+        if key == ord("r"):
+            reset_reason = "manual"
+            _reset_state(reset_reason)
 
     cap.release()
     cv2.destroyAllWindows()
+    if logger is not None:
+        logger.finalize()
     return 0
 
 if __name__ == "__main__":  # pragma: no cover

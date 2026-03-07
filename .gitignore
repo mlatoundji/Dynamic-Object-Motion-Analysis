@@ -18,3 +18,5 @@ synthetic/**/renders/
 synthetic/**/cache/
 
 .cursor/
+
+doma/sessions/
