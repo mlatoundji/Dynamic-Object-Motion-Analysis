@@ -18,3 +18,8 @@ synthetic/**/cache/
 .cursor/
 
 doma/sessions/
+
+# reports: keep only .tex and .pdf; ignore aux, log, out, fls, etc.
+reports/*
+!reports/*.tex
+!reports/*.pdf

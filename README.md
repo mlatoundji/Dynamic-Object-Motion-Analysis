@@ -2,6 +2,8 @@
 
 Détection et analyse du mouvement par **flot optique** guidé par la main, puis **classification de gestes** (IPN Hand). Le pipeline associe détection de main (MediaPipe / YOLO), flot optique (Farnebäck / RAFT) et modèles séquence→classe (CNN-LSTM, Temporal Transformer, ST-GCN).
 
+**[Rapport de projet (PDF)](reports/DOMA_project_report.pdf)** — Méthodes, formules et comparaison des modèles.
+
 ---
 
 ## Table des matières
