@@ -33,6 +33,11 @@ raft = [
     "torch>=2.2",
     "torchvision>=0.17",
 ]
+train = [
+    "torch>=2.2",
+    "scikit-learn>=1.4",
+    "tqdm>=4.66",
+]
 dataset = [
     "pyyaml>=6.0",
     "tqdm>=4.66",
@@ -41,6 +46,8 @@ dataset = [
 [project.scripts]
 doma-live = "doma.cli:main"
 doma-build-dataset = "doma.datasets.cli:main"
+doma-train = "doma.train.cli:main"
+doma-live-classifier = "doma.live_classifier:main"
 
 
 [build-system]

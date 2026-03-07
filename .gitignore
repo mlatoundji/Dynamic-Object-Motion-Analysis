@@ -9,9 +9,14 @@ uv.lock
 # Datasets (raw/processed) are large and must not be committed
 data/
 
+# Training artifacts
+runs/
+
 # Synthetic generation outputs (renders, caches)
 synthetic/**/out/
 synthetic/**/renders/
 synthetic/**/cache/
 
 .cursor/
+
+doma/sessions/

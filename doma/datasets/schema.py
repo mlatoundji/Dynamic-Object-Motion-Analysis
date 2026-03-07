@@ -7,7 +7,14 @@ from typing import Any, Literal, TypedDict
 import numpy as np
 
 
-DatasetName = Literal["ipn_hand", "jester", "ms_asl", "wlasl", "synthetic"]
+DatasetName = Literal[
+    "ipn_hand",
+    "jester",
+    "ms_asl",
+    "wlasl",
+    "synthetic",
+    "annotated",
+]
 SplitName = Literal["train", "val", "test"]
 
 
@@ -93,7 +100,9 @@ class OptFlowFeatures:
             "avg_speed": self.avg_speed.astype(np.float32),
             "max_speed": self.max_speed.astype(np.float32),
             "dominant_angle_deg": self.dominant_angle_deg.astype(np.float32),
-            "direction_concentration": self.direction_concentration.astype(np.float32),
+            "direction_concentration": self.direction_concentration.astype(
+                np.float32
+            ),
             "n_pixels": self.n_pixels.astype(np.int32),
             "threshold": self.threshold.astype(np.float32),
             "valid": self.valid.astype(bool),
