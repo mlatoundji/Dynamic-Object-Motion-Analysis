@@ -1,6 +1,7 @@
 \documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
+\usepackage[french]{babel}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{hyperref}
@@ -16,7 +17,7 @@
 \maketitle
 
 \begin{abstract}
-Ce rapport décrit le pipeline \emph{Dynamic Object Motion Analysis} (DOMA) pour la reconnaissance de gestes de la main à partir de vidéos. Le système combine détection de la main (MediaPipe / YOLO), extraction de flot optique (Farnebäck / RAFT), et plusieurs modèles de classification séquence$\to$classe entraînés sur le jeu IPN Hand. Nous décrivons les méthodes (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt), les formules de représentation des entrées (pose, métriques de flot), et nous comparons les performances sur l’ensemble de validation (exactitude, F1 macro/pondéré, perte). Les meilleurs résultats sont obtenus avec CNN-LSTM et Temporal Transformer sur les features unifiées pose+optflow.
+Ce rapport décrit le pipeline \emph{Dynamic Object Motion Analysis} (DOMA) pour la reconnaissance de gestes de la main à partir de vidéos. Le système combine détection de la main (MediaPipe / YOLO), extraction de flot optique (Farnebäck / RAFT), et plusieurs modèles de classification séquence$\to$classe entraînés sur le jeu IPN Hand. Nous décrivons les méthodes (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt, Temporal ViT), les formules de représentation des entrées (pose, métriques de flot), et nous comparons les performances sur l’ensemble de validation (exactitude, F1 macro/pondéré, perte). Les meilleurs résultats sont obtenus avec CNN-LSTM et Temporal Transformer sur les features unifiées pose+optflow ; le Temporal ViT, entraîné sur des images de flot (entrée différente), atteint environ 73\,\% d'exactitude.
 \end{abstract}
 
 \tableofcontents
@@ -35,7 +36,7 @@ La reconnaissance continue de gestes de la main (HGR) à partir de vidéos est u
   \item entraîner des classificateurs séquence$\to$classe sur le benchmark IPN Hand et comparer plusieurs architectures.
 \end{itemize}
 
-Le rapport est structuré comme suit : Section~\ref{sec:data} présente le jeu de données IPN Hand ; Section~\ref{sec:pipeline} décrit l’extraction des features (pose et flot optique) et les formules associées ; Section~\ref{sec:methods} détaille les quatre modèles (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt) ; Section~\ref{sec:experiments} donne le protocole expérimental et les tableaux de performances ; Section~\ref{sec:conclusion} conclut.
+Le rapport est structuré comme suit : Section~\ref{sec:data} présente le jeu de données IPN Hand ; Section~\ref{sec:pipeline} décrit l’extraction des features (pose et flot optique) et les formules associées ; Section~\ref{sec:methods} détaille les cinq modèles (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt, Temporal ViT) ; Section~\ref{sec:experiments} donne le protocole expérimental et les tableaux de performances ; Section~\ref{sec:conclusion} conclut.
 
 %==============================================================================
 \section{Jeu de données IPN Hand}
@@ -85,7 +86,7 @@ Sur les pixels du masque, on définit les métriques suivantes, stockées dans \
   \item \textbf{Skeleton + motion} (pour ST-GCN) : soit les 21 landmarks $\mathbf{L}_t \in \mathbb{R}^{21 \times 3}$ (transposés en tenseur $3 \times T \times 21$), avec motion $\mathbf{M}_t = \mathbf{L}_t - \mathbf{L}_{t-1}$ (et zéro à $t=0$), soit, en l’absence de landmarks, le track seul (position en skeleton, vitesse en motion), avec un seul nœud ($n=1$).
 \end{itemize}
 
-Les entrées des modèles sont donc toutes dérivées des deux sources \textbf{pose} et \textbf{optflow} ; selon l’architecture, on utilise soit un vecteur concaténé par frame (Temporal Transformer, CNN-LSTM), soit skeleton+motion et/ou track+optflow (ST-GCN, ST-GCN-Opt).
+Les entrées des modèles sont donc toutes dérivées des deux sources \textbf{pose} et \textbf{optflow} ; selon l’architecture, on utilise soit un vecteur concaténé par frame (Temporal Transformer, CNN-LSTM), soit skeleton+motion et/ou track+optflow (ST-GCN, ST-GCN-Opt), soit des images de flot par frame (Temporal ViT, pipeline ipn\_flow).
 
 %==============================================================================
 \section{Méthodes (modèles)}
@@ -98,6 +99,8 @@ On note $\mathcal{X} = (\mathbf{x}_1, \ldots, \mathbf{x}_T)$ la séquence d’en
 \end{equation}
 
 \subsection{CNN-LSTM}
+
+\paragraph{Idée.} On traite la séquence comme une «~phrase~» de vecteurs (une frame = un mot). La convolution 1D extrait d’abord des motifs locaux dans le temps (petites fenêtres de frames), puis la LSTM lit la séquence dans les deux sens et mémorise les dépendances à longue portée. Une fois toute la séquence parcourue, on résume en une seule représentation (moyenne sur le temps) et on prédit la classe. C’est un classique pour les séries temporelles et les vidéos.
 
 L’entrée est une séquence de vecteurs $\mathbf{x}_t \in \mathbb{R}^F$ (pose + optflow unifiés, $F=78$ par défaut). Le modèle comporte :
 \begin{enumerate}
@@ -112,6 +115,8 @@ L’entrée est une séquence de vecteurs $\mathbf{x}_t \in \mathbb{R}^F$ (pose 
 
 \subsection{Temporal Transformer}
 
+\paragraph{Idée.} Au lieu de parcourir la séquence pas à pas comme la LSTM, on donne au modèle toutes les frames en une fois. Chaque position reçoit un indice de temps (encodage positionnel), puis des couches d’attention permettent à chaque frame de «~regarder~» toutes les autres pour composer une représentation contextuelle. On agrège ensuite ces représentations (moyenne) et on classifie. Très flexible pour les relations à longue distance, mais plus gourmand en données.
+
 L’entrée est la même séquence $\mathbf{x}_t \in \mathbb{R}^F$. Le modèle :
 \begin{enumerate}
   \item \textbf{Normalisation et projection} : LayerNorm($F$), Linear($F \to d$), LayerNorm($d$), avec $d$ la dimension du modèle.
@@ -124,6 +129,8 @@ L’entrée est la même séquence $\mathbf{x}_t \in \mathbb{R}^F$. Le modèle :
 \end{enumerate}
 
 \subsection{ST-GCN (Spatial-Temporal Graph Convolutional Network)}
+
+\paragraph{Idée.} On représente la main comme un \emph{graphe} : les nœuds sont les articulations (ou le centre de la main), les arêtes relient les parties voisines. À chaque instant, chaque nœud a des features (position, mouvement). Le modèle alterne des convolutions sur le temps (noyau glissant le long des frames) et sur l’espace (propagation le long des arêtes du graphe), ce qui capture à la fois l’évolution temporelle et les relations entre articulations. Adapté aux squelettes et à la reconnaissance d’actions basée pose.
 
 L’entrée est un tenseur $\mathbf{X} \in \mathbb{R}^{B \times 6 \times T \times n}$ (skeleton et motion concaténés : 3 canaux skeleton + 3 canaux motion, $T$ pas de temps, $n$ nœuds, $n=21$ avec landmarks). Le graphe spatial est défini par une matrice d’adjacence $\mathbf{A} \in \mathbb{R}^{n \times n}$ (ici $\mathbf{A} = \mathbf{I}$ pour un graphe sans arêtes explicites, ou une matrice de voisinage apprise).
 
@@ -140,6 +147,8 @@ Deux ST-Blocks sont empilés, suivis d’un \textbf{pooling global} (moyenne sur
 
 \subsection{ST-GCN-Opt (multi-branches)}
 
+\paragraph{Idée.} On combine trois «~experts~» : un qui voit le squelette + mouvement (ST-GCN), un qui voit la trajectoire globale de la main (track 3D), un qui voit les métriques de flot optique. Chaque branche produit un vecteur ; on les fusionne (concaténation, pondération ou attention) puis on classifie. L’objectif est de profiter à la fois de la structure articulaire et des signaux globaux (trajectoire, flot), pour des gestes où la forme du squelette et le mouvement d’ensemble comptent.
+
 Ce modèle fusionne trois branches à partir des mêmes données pose + optflow :
 \begin{enumerate}
   \item \textbf{Branche ST-GCN} : comme ci-dessus, sur skeleton+motion $\to$ vecteur $\mathbf{h}_{\mathrm{stgcn}}$.
@@ -148,6 +157,19 @@ Ce modèle fusionne trois branches à partir des mêmes données pose + optflow 
 \end{enumerate}
 
 La fusion peut être \emph{concaténation}, \emph{pondérée} (poids appris + softmax), \emph{attention} (projection commune + multi-head attention) ou \emph{gated}. Les vecteurs fusionnés sont passés dans un MLP (Linear$\to$BN$\to$ReLU$\to$Dropout, répété) puis Linear $\to$ logits $K$.
+
+\subsection{Temporal ViT (Vision Transformer temporel)}
+
+\paragraph{Idée.} Ici l'entrée n'est plus un vecteur de features par frame mais une \emph{image} (carte de flot optique ou RGB) pour chaque frame. On encode chaque image avec un même réseau de type Vision Transformer (ViT), ce qui donne un vecteur par frame ; on ajoute un encodage positionnel temporel puis un petit Transformer sur la dimension temps pour fusionner l'information. Enfin on moyenne sur le temps et on classifie. Ce modèle exploite directement la géométrie spatiale du flot (patches 2D), au prix d'une entrée plus lourde et d'un autre pipeline de données (ipn\_flow : images de flot par séquence).
+
+L'entrée est un tenseur $\mathbf{X} \in \mathbb{R}^{B \times T \times C \times H \times W}$ (batch, temps, canaux, hauteur, largeur), typiquement $T=8$ frames, $H=W=224$, $C=3$ (flot visualisé en RGB ou cartes $u,v$). Le modèle :
+\begin{enumerate}
+  \item \textbf{Encodeur par frame} : un backbone ViT (ex. \texttt{vit\_small\_patch16\_224}, sans tête, \texttt{global\_pool=""}) appliqué à chaque frame ; sortie patch tokens $\to$ moyenne sur les patches $\to$ vecteur $\mathbf{e}_t \in \mathbb{R}^{d}$ par frame ($d=384$).
+  \item \textbf{Encodage positionnel temporel} : vecteur appris $\mathbf{E}_{\mathrm{temp}} \in \mathbb{R}^{1 \times T \times d}$ ajouté aux $\mathbf{e}_t$.
+  \item \textbf{Transformer temporel} : TransformerEncoder (quelques couches, attention + FFN, GELU, norm-first) sur la séquence $(\mathbf{e}_1 + E_{1}, \ldots, \mathbf{e}_T + E_T)$ ; sortie $(B, T, d)$.
+  \item \textbf{Aggrégation et tête} : LayerNorm sur la moyenne temporelle $\frac{1}{T}\sum_t \mathbf{o}_t$, puis Dropout et Linear($d$, $K$) $\to$ logits.
+\end{enumerate}
+Contrairement aux autres modèles de cette section, le Temporal ViT est entraîné avec le dataset \textbf{ipn\_flow} (images de flot par séquence) et non le manifest pose+optflow ; les métriques rapportées ne sont donc pas directement comparables.
 
 %==============================================================================
 \section{Expériences et résultats}
@@ -164,7 +186,7 @@ La fusion peut être \emph{concaténation}, \emph{pondérée} (poids appris + so
 
 \subsection{Comparaison des modèles}
 
-Les tableaux suivants résument les \textbf{meilleures métriques} (best epoch) pour chaque modèle sur la validation. Les runs proviennent des dossiers \texttt{models/<model>\_<date>\_<heure>/} (metrics.json).
+Les tableaux suivants résument les \textbf{meilleures métriques} (best epoch) pour chaque modèle sur la validation. Les runs proviennent des dossiers \texttt{models/<model>\_<date>\_<heure>/} (metrics.json). Temporal ViT est entraîné sur ipn\_flow ; ses chiffres ne sont pas directement comparables.
 
 \begin{table}[htbp]
   \centering
@@ -176,11 +198,14 @@ Les tableaux suivants résument les \textbf{meilleures métriques} (best epoch) 
     \midrule
     CNN-LSTM           & 0.883 & 0.817 & 0.836 & 0.823 & 0.884 & 0.595 \\
     Temporal Transformer & 0.850 & 0.742 & 0.764 & 0.748 & 0.850 & 0.610 \\
+    Temporal ViT\textsuperscript{1} & 0.728 & 0.611 & 0.602 & 0.592 & 0.723 & 1.06 \\
     ST-GCN-Opt         & 0.665 & 0.465 & 0.300 & 0.311 & 0.597 & 1.365 \\
     ST-GCN             & 0.538 & 0.246 & 0.226 & 0.196 & 0.458 & 1.549 \\
     \bottomrule
   \end{tabular}
 \end{table}
+
+\footnotetext[1]{Temporal ViT : entrée images de flot (ipn\_flow), non directement comparable.}
 
 \begin{table}[htbp]
   \centering
@@ -192,6 +217,7 @@ Les tableaux suivants résument les \textbf{meilleures métriques} (best epoch) 
     \midrule
     CNN-LSTM            & 0.0629 & 20 \\
     Temporal Transformer & 0.3464 & 18 \\
+    Temporal ViT         & 0.218  & 7 \\
     ST-GCN-Opt          & 0.8283 & 17 \\
     ST-GCN              & 1.6031 & 20 \\
     \bottomrule
@@ -202,6 +228,8 @@ Les tableaux suivants résument les \textbf{meilleures métriques} (best epoch) 
 
 \begin{itemize}
   \item \textbf{CNN-LSTM} et \textbf{Temporal Transformer} obtiennent les meilleures performances (exactitude $\approx$ 85--88\%, F1 macro $\approx$ 0.75--0.82), en utilisant directement le vecteur unifié pose+optflow par frame. La représentation séquentielle standard convient bien au jeu IPN Hand avec les features extraites.
+  \item \textbf{Pourquoi CNN-LSTM dépasse le Temporal Transformer} (accuracy 88,3\% vs 85,0\%, F1 macro 0,82 vs 0,75) : (1)~la convolution 1D et la récurrence LSTM introduisent un biais d'induction fort pour les motifs temporels \emph{locaux} (phases successives d'un geste), ce qui peut mieux généraliser sur des séquences de longueur variable avec peu de données ; (2)~le Transformer repose sur l'attention globale et a généralement besoin de plus de données ou d'une régularisation plus forte pour éviter le surajustement ; (3)~la perte d'entraînement à la meilleure epoch est nettement plus basse pour CNN-LSTM (0,063 vs 0,346), ce qui suggère un meilleur ajustement sans dégradation de la validation. En résumé, pour la taille actuelle du jeu IPN Hand et les features utilisées, l'architecture CNN-LSTM offre un meilleur compromis capacité / régularisation que le Temporal Transformer.
+  \item \textbf{Temporal ViT} (entrée : images de flot, ipn\_flow) atteint environ 72,8\,\% d'exactitude et 0,59 de F1 macro dans notre run (best epoch 7). Les performances ne sont pas directement comparables aux modèles pose+optflow car l'entrée et le pipeline de données diffèrent ; le modèle pourrait bénéficier d'un pré-entraînement ou d'un réglage dédié.
   \item \textbf{ST-GCN-Opt} est en retrait (accuracy $\approx$ 66.5\%, F1 macro $\approx$ 0.31), avec une forte variance sur les classes de gestes (bon rappel sur D0X/B0A/B0B, rappel faible sur plusieurs G0x). La fusion multi-branches et le format skeleton/track/optflow pourraient nécessiter un réglage (learning rate, régularisation, ou plus de données) pour converger mieux.
   \item \textbf{ST-GCN} seul atteint seulement $\approx$ 53.8\% d’exactitude (F1 macro $\approx$ 0.20), avec de nombreux rappels à zéro sur les gestes G04--G06, G10, G11. L’utilisation du graphe skeleton+motion sans les branches track/optflow et avec un graphe trivial ($\mathbf{A}=\mathbf{I}$) limite probablement la capacité du modèle sur ce dataset.
 \end{itemize}
@@ -213,7 +241,7 @@ En résumé, pour ce pipeline et ce split, les modèles basés sur la séquence 
 \label{sec:conclusion}
 %==============================================================================
 
-Le projet DOMA fournit un pipeline complet pour la reconnaissance de gestes de la main à partir de vidéos : détection de la main (MediaPipe/YOLO), flot optique (Farnebäck/RAFT), extraction de métriques (magnitude, direction dominante, concentration) et de pose (track 3D, landmarks), puis classification par plusieurs modèles (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt). Les formules de représentation (moyenne circulaire, pooling masqué, blocs ST-GCN) ont été rappelées et les performances sur IPN Hand comparées en tableaux. Les meilleurs résultats sont obtenus avec CNN-LSTM et Temporal Transformer sur les features pose+optflow unifiées ; les architectures à graphe pourraient être améliorées par un graphe spatial plus riche et un réglage dédié.
+Le projet DOMA fournit un pipeline complet pour la reconnaissance de gestes de la main à partir de vidéos : détection de la main (MediaPipe/YOLO), flot optique (Farnebäck/RAFT), extraction de métriques (magnitude, direction dominante, concentration) et de pose (track 3D, landmarks), puis classification par plusieurs modèles (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt, Temporal ViT). Les formules de représentation (moyenne circulaire, pooling masqué, blocs ST-GCN) ont été rappelées et les performances sur IPN Hand comparées en tableaux. Les meilleurs résultats sont obtenus avec CNN-LSTM et Temporal Transformer sur les features pose+optflow unifiées ; les architectures à graphe pourraient être améliorées par un graphe spatial plus riche et un réglage dédié.
 
 %==============================================================================
 \section*{Références}
@@ -224,6 +252,7 @@ Le projet DOMA fournit un pipeline complet pour la reconnaissance de gestes de l
   \item G. Farnebäck, ``Two-frame motion estimation based on polynomial expansion,'' in \textit{Scandinavian Conference on Image Analysis}, 2003.
   \item Y. Yan, S. Xiong, et D. Lin, ``Spatial temporal graph convolutional networks for skeleton-based action recognition,'' in \textit{AAAI}, 2018.
   \item A. Vaswani et al., ``Attention is all you need,'' in \textit{NeurIPS}, 2017.
+  \item A. Dosovitskiy et al., ``An image is worth 16x16 words: Transformers for image recognition at scale,'' in \textit{ICLR}, 2021.
 \end{enumerate}
 
 \end{document}
