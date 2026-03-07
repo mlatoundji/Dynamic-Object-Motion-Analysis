@@ -1,0 +1,15 @@
+{
+  "manifest_path": "data/processed/manifest.csv",
+  "root_dir": ".",
+  "model_name": "temporal_transformer",
+  "split_mode": "train_test",
+  "batch_size": 16,
+  "epochs": 20,
+  "lr": 0.0005,
+  "max_len": null,
+  "num_workers": 0,
+  "save_best_by": "accuracy",
+  "weight_decay": 0.01,
+  "seed": null,
+  "dt_ms": 33.333
+}

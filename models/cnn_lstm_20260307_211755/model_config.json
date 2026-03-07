@@ -1,0 +1,13 @@
+{
+  "num_classes": 14,
+  "in_features": 79,
+  "conv_channels": 128,
+  "conv_layers": 2,
+  "conv_kernel": 5,
+  "conv_dropout": 0.1,
+  "lstm_hidden": 256,
+  "lstm_layers": 1,
+  "bidirectional": true,
+  "lstm_dropout": 0.1,
+  "head_dropout": 0.2
+}

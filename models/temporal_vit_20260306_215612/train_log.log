@@ -1,0 +1,20 @@
+Run ID: temporal_vit_20260306_215612 (IPN Hand flow, train/val only)
+Log file: models/temporal_vit_20260306_215612.log
+Device: mps
+annotation=data/raw/ipn_hand/ipnall_flo.json  root_dir=data/raw/ipn_hand  model=temporal_vit  batch_size=8  epochs=20  lr=0.0001
+
+  train_loss=1.6140  val_loss=1.1242  accuracy=0.6270  precision(macro)=0.3675  recall(macro)=0.4517  f1(macro)=0.3799  f1(weighted)=0.6018
+  -> saved temporal_vit_20260306_215612.pt (best accuracy=0.6270)
+  train_loss=0.9780  val_loss=1.2682  accuracy=0.6108  precision(macro)=0.4279  recall(macro)=0.4294  f1(macro)=0.3933  f1(weighted)=0.5898
+  train_loss=0.6964  val_loss=0.9421  accuracy=0.6811  precision(macro)=0.5396  recall(macro)=0.5716  f1(macro)=0.5299  f1(weighted)=0.6645
+  -> saved temporal_vit_20260306_215612.pt (best accuracy=0.6811)
+  train_loss=0.5158  val_loss=0.8436  accuracy=0.7155  precision(macro)=0.6481  recall(macro)=0.5918  f1(macro)=0.5664  f1(weighted)=0.7020
+  -> saved temporal_vit_20260306_215612.pt (best accuracy=0.7155)
+  train_loss=0.3947  val_loss=0.9722  accuracy=0.7128  precision(macro)=0.5903  recall(macro)=0.5932  f1(macro)=0.5583  f1(weighted)=0.7068
+  train_loss=0.3028  val_loss=1.0475  accuracy=0.7182  precision(macro)=0.6356  recall(macro)=0.5758  f1(macro)=0.5583  f1(weighted)=0.7051
+  -> saved temporal_vit_20260306_215612.pt (best accuracy=0.7182)
+  train_loss=0.2179  val_loss=1.0609  accuracy=0.7284  precision(macro)=0.6108  recall(macro)=0.6020  f1(macro)=0.5920  f1(weighted)=0.7234
+  -> saved temporal_vit_20260306_215612.pt (best accuracy=0.7284)
+  train_loss=0.1511  val_loss=1.2656  accuracy=0.7162  precision(macro)=0.5694  recall(macro)=0.6026  f1(macro)=0.5687  f1(weighted)=0.7117
+  train_loss=0.0751  val_loss=1.2997  accuracy=0.7196  precision(macro)=0.6140  recall(macro)=0.6029  f1(macro)=0.5966  f1(weighted)=0.7225
+  train_loss=0.0238  val_loss=1.5320  accuracy=0.6993  precision(macro)=0.6064  recall(macro)=0.6196  f1(macro)=0.5950  f1(weighted)=0.7020
