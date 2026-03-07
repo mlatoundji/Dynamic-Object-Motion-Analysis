@@ -1,28 +1,20 @@
 """
-Gesture dataset and DataLoader built from data/processed/manifest.csv.
-
-Loads pose_tensor.npz and optflow_features.npz per sample and returns
-tensors plus label (class index). Uses config.labels for label<>ID mapping.
-Supports filtering by split and variable-length sequences with optional padding in collate_fn.
+DataLoader: manifest.csv (pose/optflow NPZ). build_dataloaders and collate_gesture_batch.
+Dataset class is internal.
 """
 
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from config.labels import LABEL_TO_ID, NUM_CLASSES
+from config.labels import LABEL_TO_ID
 
 
-# Default columns used from manifest
 MANIFEST_COLS = ["sample_id", "dataset", "split", "label", "pose_npz", "optflow_npz"]
-
-# Keys to load from each NPZ and stack into a single tensor (excluding timestamps and valid)
-POSEDIM = 9  # track_pos(3) + track_vel(3) + track_acc(3)
-OPTFLOWDIM = 6  # avg_speed, max_speed, dominant_angle_deg, direction_concentration, n_pixels, threshold
 
 
 def _load_pose_npz(path: Path) -> dict[str, np.ndarray]:
@@ -36,21 +28,18 @@ def _load_optflow_npz(path: Path) -> dict[str, np.ndarray]:
 
 
 def _pose_to_tensor(data: dict[str, np.ndarray]) -> tuple[torch.Tensor, torch.Tensor]:
-    """Extract pose features and valid mask. Returns (T, 9+63), (T,) for track+landmarks flat."""
-    pos = np.asarray(data["track_pos_xyz"], dtype=np.float32)   # (T, 3)
-    vel = np.asarray(data["track_vel_xyz"], dtype=np.float32)   # (T, 3)
-    acc = np.asarray(data["track_acc_xyz"], dtype=np.float32)   # (T, 3)
-    lm = np.asarray(data["landmarks_xyz"], dtype=np.float32)    # (T, 21, 3)
+    pos = np.asarray(data["track_pos_xyz"], dtype=np.float32)
+    vel = np.asarray(data["track_vel_xyz"], dtype=np.float32)
+    acc = np.asarray(data["track_acc_xyz"], dtype=np.float32)
+    lm = np.asarray(data["landmarks_xyz"], dtype=np.float32)
     valid = np.asarray(data["valid"], dtype=bool)
-
-    track = np.concatenate([pos, vel, acc], axis=1)            # (T, 9)
-    landmarks_flat = lm.reshape(lm.shape[0], -1)              # (T, 63)
-    pose = np.concatenate([track, landmarks_flat], axis=1)     # (T, 72)
+    track = np.concatenate([pos, vel, acc], axis=1)
+    landmarks_flat = lm.reshape(lm.shape[0], -1)
+    pose = np.concatenate([track, landmarks_flat], axis=1)
     return torch.from_numpy(pose), torch.from_numpy(valid)
 
 
 def _optflow_to_tensor(data: dict[str, np.ndarray]) -> tuple[torch.Tensor, torch.Tensor]:
-    """Extract optflow features and valid mask. Returns (T, 6), (T,)."""
     avg_speed = np.asarray(data["avg_speed"], dtype=np.float32)
     max_speed = np.asarray(data["max_speed"], dtype=np.float32)
     dominant_angle = np.asarray(data["dominant_angle_deg"], dtype=np.float32)
@@ -58,24 +47,12 @@ def _optflow_to_tensor(data: dict[str, np.ndarray]) -> tuple[torch.Tensor, torch
     n_pixels = np.asarray(data["n_pixels"], dtype=np.float32)
     threshold = np.asarray(data["threshold"], dtype=np.float32)
     valid = np.asarray(data["valid"], dtype=bool)
-
     opt = np.stack([avg_speed, max_speed, dominant_angle, concentration, n_pixels, threshold], axis=1)
     return torch.from_numpy(opt), torch.from_numpy(valid)
 
 
-class GestureDataset(Dataset[dict[str, Any]]):
-    """
-    Dataset of gesture samples from manifest.csv.
-
-    Each item is a dict with:
-        - "pose": (T, 72) float tensor (track 9 + landmarks 63)
-        - "optflow": (T, 6) float tensor
-        - "valid_pose": (T,) bool
-        - "valid_optflow": (T,) bool
-        - "label": int class index (0-based)
-        - "sample_id": str
-        - "length": int (T)
-    """
+class _GestureDataset(Dataset[dict[str, Any]]):
+    """Internal. Dataset of gesture samples from manifest.csv."""
 
     def __init__(
         self,
@@ -85,22 +62,13 @@ class GestureDataset(Dataset[dict[str, Any]]):
         label_to_id: Optional[dict[str, int]] = None,
         require_valid_paths: bool = True,
     ):
-        """
-        Args:
-            manifest_path: Path to data/processed/manifest.csv.
-            root_dir: Root directory for resolving relative paths in the manifest.
-            split: If set, only include rows with this split. Can be a single split
-                ("train", "val", "test") or a list of splits (e.g. ["train", "val"]).
-            label_to_id: Map label string -> 0-based class ID. Defaults to config.labels.LABEL_TO_ID.
-            require_valid_paths: If True, drop rows with missing/empty pose_npz or optflow_npz.
-        """
         self.root = Path(root_dir)
         self.manifest_path = Path(manifest_path)
         self.label_to_id = label_to_id if label_to_id is not None else LABEL_TO_ID
         self.require_valid_paths = require_valid_paths
 
         df = pd.read_csv(self.manifest_path)
-        if MANIFEST_COLS[0] not in df.columns:
+        if not set(MANIFEST_COLS).issubset(df.columns):
             raise ValueError(f"Manifest must contain columns {MANIFEST_COLS}")
         df = df[MANIFEST_COLS].copy()
 
@@ -116,7 +84,6 @@ class GestureDataset(Dataset[dict[str, Any]]):
                 & df["optflow_npz"].astype(str).str.strip().ne("")
             ].reset_index(drop=True)
 
-        # Keep only rows whose label is in the label mapping (config.labels by default)
         known_labels = set(self.label_to_id)
         df = df[df["label"].isin(known_labels)].reset_index(drop=True)
 
@@ -139,11 +106,8 @@ class GestureDataset(Dataset[dict[str, Any]]):
         pose_path = self.root / str(row["pose_npz"]).strip()
         optflow_path = self.root / str(row["optflow_npz"]).strip()
 
-        pose_data = _load_pose_npz(pose_path)
-        optflow_data = _load_optflow_npz(optflow_path)
-
-        pose_t, valid_pose = _pose_to_tensor(pose_data)
-        optflow_t, valid_optflow = _optflow_to_tensor(optflow_data)
+        pose_t, valid_pose = _pose_to_tensor(_load_pose_npz(pose_path))
+        optflow_t, valid_optflow = _optflow_to_tensor(_load_optflow_npz(optflow_path))
 
         T = pose_t.size(0)
         assert optflow_t.size(0) == T, "pose and optflow length mismatch"
@@ -166,15 +130,7 @@ def collate_gesture_batch(
 ) -> dict[str, Any]:
     """
     Collate a list of gesture samples into a batch with padding.
-
-    Returns dict with:
-        - "pose": (B, T_max, 72)
-        - "optflow": (B, T_max, 6)
-        - "valid_pose": (B, T_max) bool
-        - "valid_optflow": (B, T_max) bool
-        - "label": (B,) long
-        - "length": (B,) long
-        - "sample_id": list of str
+    Returns dict: pose (B,T_max,72), optflow (B,T_max,6), valid_pose, valid_optflow, label, length, sample_id.
     """
     if not batch:
         return {}
@@ -213,7 +169,7 @@ def collate_gesture_batch(
     }
 
 
-def create_dataloaders(
+def build_dataloaders(
     manifest_path: str | Path,
     root_dir: str | Path,
     batch_size: int = 32,
@@ -223,33 +179,19 @@ def create_dataloaders(
     pad_value: float = 0.0,
     split_mode: str = "train_val_test",
     pin_memory: bool = True,
+    generator: Optional[torch.Generator] = None,
 ):
     """
-    Create DataLoaders from manifest.
-
-    Args:
-        manifest_path: Path to data/processed/manifest.csv.
-        root_dir: Root directory for resolving relative paths in the manifest.
-        batch_size: Batch size for all loaders.
-        num_workers: Number of worker processes (0 = main process only).
-        label_to_id: Map label string -> 0-based class ID. Defaults to config.labels.LABEL_TO_ID.
-        max_len: If set, cap sequence length (truncate) when collating.
-        pad_value: Value used for padding sequences.
-        split_mode: One of:
-            - "train_val_test": three loaders — train, val, test (each may be None).
-            - "train_test": two loaders — train+val combined, test.
-        pin_memory: If True, pin memory for faster CPU->GPU transfer (CUDA only; set False for MPS/CPU).
-
-    Returns:
-        - If split_mode == "train_val_test": (train_loader, val_loader, test_loader).
-        - If split_mode == "train_test": (train_loader, test_loader).
+    Build DataLoaders from manifest.csv.
+    Returns (train_loader, val_loader, test_loader) or (train_loader, test_loader) depending on split_mode.
+    If generator is provided, it is used for shuffle (reproducible runs).
     """
     from torch.utils.data import DataLoader
 
     collate = lambda b: collate_gesture_batch(b, pad_value=pad_value, max_len=max_len)
 
     def _loader(splits: Union[str, list[str]], shuffle: bool) -> Optional[DataLoader]:
-        ds = GestureDataset(
+        ds = _GestureDataset(
             manifest_path=manifest_path,
             root_dir=root_dir,
             split=splits,
@@ -264,6 +206,7 @@ def create_dataloaders(
             num_workers=num_workers,
             collate_fn=collate,
             pin_memory=pin_memory,
+            generator=generator if shuffle else None,
         )
 
     if split_mode == "train_val_test":
