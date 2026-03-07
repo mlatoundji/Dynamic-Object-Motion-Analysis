@@ -4,7 +4,8 @@ version = "0.1.0"
 description = ""
 authors = [
     {name = "MMyster", email = "mouradlatoundji@gmail.com"},
-    {name = "Chengbo Zhang", email = "chengbozhang.cbz@gmail.com"}
+    {name = "Chengbo Zhang", email = "chengbozhang.cbz@gmail.com"},
+    {name = "Le Hoang", email = "lehoangnguyen510@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"

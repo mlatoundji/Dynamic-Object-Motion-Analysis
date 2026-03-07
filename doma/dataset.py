@@ -7,12 +7,12 @@ Supports filtering by split and variable-length sequences with optional padding 
 """
 
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, Union, List, Dict, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 from config.labels import LABEL_TO_ID, NUM_CLASSES
 
@@ -280,3 +280,163 @@ def create_dataloaders(
     raise ValueError(
         f'split_mode must be "train_val_test" or "train_test", got {split_mode!r}'
     )
+
+
+##########################################
+# This is for ts-gcn model
+##########################################
+def tsgcn_collate_fn(
+    batch: List[Dict[str, Any]], 
+    max_len: Optional[int] = None,
+) -> Dict[str, torch.Tensor]:
+
+    if not batch:
+        return {}
+
+    lengths = torch.tensor([s["length"] for s in batch], dtype=torch.long)
+    T_max = int(lengths.max().item()) if max_len is None else min(int(lengths.max().item()), max_len)
+    B = len(batch)
+
+    # STGCN format (B, C, T, V)
+    skeleton = torch.zeros(B, 3, T_max, 21, dtype=torch.float32)
+    motion = torch.zeros(B, 3, T_max, 21, dtype=torch.float32)
+
+    track = torch.zeros(B, T_max, 9, dtype=torch.float32)
+    optflow = torch.zeros(B, T_max, 6, dtype=torch.float32)
+
+    valid_mask = torch.zeros(B, T_max, dtype=torch.bool)
+    labels = torch.zeros(B, dtype=torch.long)
+    sample_ids: List[str] = []
+
+    for i, sample in enumerate(batch):
+
+        T = min(sample["length"], T_max)
+
+        pose = sample["pose"][:T]  # (T,72)
+
+        track_features = pose[:, :9]
+        landmarks_flat = pose[:, 9:]
+
+        landmarks_3d = landmarks_flat.view(T, 21, 3)  # (T,21,3)
+
+        track[i, :T] = track_features
+        optflow[i, :T] = sample["optflow"][:T]
+
+        valid_mask[i, :T] = sample["valid_pose"][:T]
+
+        # (T,21,3) → (3,T,21)
+        skeleton[i, :, :T, :] = landmarks_3d.permute(2,0,1)
+
+        if T > 1:
+            motion[i, :, 1:T, :] = (
+                skeleton[i, :, 1:T, :] -
+                skeleton[i, :, :T-1, :]
+            )
+
+        labels[i] = sample["label"]
+        sample_ids.append(sample["sample_id"])
+
+    # # sanitize non-finite values first (NaN/Inf can appear from preprocessing)
+    skeleton = torch.nan_to_num(skeleton, nan=0.0, posinf=0.0, neginf=0.0)
+    motion = torch.nan_to_num(motion, nan=0.0, posinf=0.0, neginf=0.0)
+    track = torch.nan_to_num(track, nan=0.0, posinf=0.0, neginf=0.0)
+    optflow = torch.nan_to_num(optflow, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # apply mask safely (avoid NaN propagation from x * 0)
+    mask = valid_mask[:, None, :, None]
+    skeleton = torch.where(mask, skeleton, torch.zeros_like(skeleton))
+    motion = torch.where(mask, motion, torch.zeros_like(motion))
+
+    return {
+        "skeleton": skeleton,   # (B,3,T,21)
+        "motion": motion,       # (B,3,T,21)
+        "track": track,
+        "optflow": optflow,
+        "label": labels,
+        "length": lengths,
+        "valid_mask": valid_mask,
+        "sample_id": sample_ids,
+    }
+
+def create_tsgcn_dataloaders(
+    manifest_path: Union[str, Path],
+    root_dir: Union[str, Path],
+    batch_size: int = 32,
+    num_workers: int = 0,
+    label_to_id: Optional[Dict[str, int]] = None,
+    max_len: Optional[int] = None,
+    split_mode: str = "train_val_test",
+    pin_memory: bool = True,
+) -> Union[
+    Tuple[Optional[DataLoader], Optional[DataLoader], Optional[DataLoader]],
+    Tuple[Optional[DataLoader], Optional[DataLoader]]
+]:
+    """
+    Create DataLoaders for TSGCN from manifest.
+    
+    Args:
+        manifest_path: Path to data/processed/manifest.csv
+        root_dir: Root directory for resolving relative paths
+        batch_size: Batch size for all loaders
+        num_workers: Number of worker processes (0 = main process only)
+        label_to_id: Map label string -> 0-based class ID. Defaults to config.labels.LABEL_TO_ID
+        max_len: If set, cap sequence length (truncate) when collating
+        pad_value: Value used for padding sequences
+        split_mode: One of:
+            - "train_val_test": three loaders — train, val, test (each may be None)
+            - "train_test": two loaders — train+val combined, test
+        pin_memory: If True, pin memory for faster CPU->GPU transfer
+        include_motion: If True, include motion (velocity) features in output
+    
+    Returns:
+        - If split_mode == "train_val_test": (train_loader, val_loader, test_loader)
+        - If split_mode == "train_test": (train_loader, test_loader)
+    """
+    
+    # Create collate function with fixed parameters
+    from functools import partial
+
+    collate_fn = partial(
+        tsgcn_collate_fn,
+        max_len=max_len,
+    )
+        
+    def _create_loader(splits: Union[str, List[str]], shuffle: bool) -> Optional[DataLoader]:
+        dataset = GestureDataset(
+            manifest_path=manifest_path,
+            root_dir=root_dir,
+            split=splits,
+            label_to_id=label_to_id,
+            require_valid_paths=True,
+        )
+        
+        if len(dataset) == 0:
+            print(f"Warning: No samples found for split: {splits}")
+            return None
+        
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            collate_fn=collate_fn,
+            pin_memory=pin_memory,
+            drop_last=False,  # Keep incomplete batches
+        )
+    
+    # Create loaders based on split_mode
+    if split_mode == "train_val_test":
+        train_loader = _create_loader("train", shuffle=True)
+        val_loader = _create_loader("val", shuffle=False)
+        test_loader = _create_loader("test", shuffle=False)
+        return train_loader, val_loader, test_loader
+    
+    elif split_mode == "train_test":
+        train_loader = _create_loader(["train", "val"], shuffle=True)
+        test_loader = _create_loader("test", shuffle=False)
+        return train_loader, test_loader
+    
+    else:
+        raise ValueError(
+            f'split_mode must be "train_val_test" or "train_test", got {split_mode!r}'
+        )

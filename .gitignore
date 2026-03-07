@@ -14,3 +14,5 @@ data/**
 synthetic/**/out/
 synthetic/**/renders/
 synthetic/**/cache/
+
+models/**
