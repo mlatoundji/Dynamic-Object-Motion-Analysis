@@ -5,6 +5,7 @@ import csv
 import json
 import time
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,8 @@ except Exception:  # pragma: no cover
 
 from .train.data import FeatureConfig, NormStats
 from .train.model import CNNLSTMClassifier, ModelConfig
+from .datasets.manifest import write_manifest_csv
+from .datasets.schema import OptFlowFeatures, PoseTensor
 
 
 def _now_ms() -> float:
@@ -212,6 +215,694 @@ class _SessionLogger:
         with self.txt_path.open("a", encoding="utf-8") as f:
             f.write("\n\n")
             f.write(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+@dataclass(frozen=True)
+class _Rect:
+    x: int
+    y: int
+    w: int
+    h: int
+
+    def contains(self, px: int, py: int) -> bool:
+        return (self.x <= px < (self.x + self.w)) and (self.y <= py < (self.y + self.h))
+
+
+@dataclass
+class _Button:
+    label: str  # token (D0X, B0A, G01...)
+    text: str  # display text
+    rect: _Rect
+    hotkey: str
+
+
+class _AnnoRing:
+    """
+    Lightweight ring buffer for annotation capture.
+    Stores per-frame signals so we can extract [t0,t1] slices.
+    """
+
+    def __init__(self, *, max_ms: float) -> None:
+        self.max_ms = float(max_ms)
+        self.t_ms: deque[float] = deque()
+        self.track_xyz: deque[np.ndarray] = deque()
+        self.lm_xyz: deque[np.ndarray] = deque()
+        self.pose_valid: deque[bool] = deque()
+
+        self.avg_speed: deque[float] = deque()
+        self.max_speed: deque[float] = deque()
+        self.ang_deg: deque[float] = deque()
+        self.conc: deque[float] = deque()
+        self.npx: deque[float] = deque()
+        self.thr: deque[float] = deque()
+        self.flow_valid: deque[bool] = deque()
+
+        self.hand_side: deque[str] = deque()
+
+        # Per-frame "held" prediction (last inference)
+        self.pred_label: deque[str] = deque()
+        self.pred_p: deque[float] = deque()
+
+    def push(
+        self,
+        *,
+        t_ms: float,
+        track_xyz: np.ndarray,
+        lm_xyz: np.ndarray,
+        pose_valid: bool,
+        flow_feats: dict[str, float],
+        flow_valid: bool,
+        hand_side: str,
+        pred_label: str,
+        pred_p: float,
+    ) -> None:
+        self.t_ms.append(float(t_ms))
+        self.track_xyz.append(np.asarray(track_xyz, dtype=np.float64))
+        self.lm_xyz.append(np.asarray(lm_xyz, dtype=np.float64))
+        self.pose_valid.append(bool(pose_valid))
+
+        self.avg_speed.append(float(flow_feats.get("avg_speed", np.nan)))
+        self.max_speed.append(float(flow_feats.get("max_speed", np.nan)))
+        self.ang_deg.append(float(flow_feats.get("dominant_angle_deg", np.nan)))
+        self.conc.append(float(flow_feats.get("direction_concentration", np.nan)))
+        self.npx.append(float(flow_feats.get("n_pixels", 0.0)))
+        self.thr.append(float(flow_feats.get("threshold", np.nan)))
+        self.flow_valid.append(bool(flow_valid))
+
+        self.hand_side.append(str(hand_side))
+        self.pred_label.append(str(pred_label))
+        self.pred_p.append(float(pred_p))
+
+        self._trim()
+
+    def _trim(self) -> None:
+        while len(self.t_ms) >= 2:
+            span = float(self.t_ms[-1] - self.t_ms[0])
+            if span <= self.max_ms:
+                break
+            self.t_ms.popleft()
+            self.track_xyz.popleft()
+            self.lm_xyz.popleft()
+            self.pose_valid.popleft()
+            self.avg_speed.popleft()
+            self.max_speed.popleft()
+            self.ang_deg.popleft()
+            self.conc.popleft()
+            self.npx.popleft()
+            self.thr.popleft()
+            self.flow_valid.popleft()
+            self.hand_side.popleft()
+            self.pred_label.popleft()
+            self.pred_p.popleft()
+
+    def slice(self, *, t0_ms: float, t1_ms: float) -> dict[str, Any]:
+        t = np.asarray(self.t_ms, dtype=np.float64)
+        if t.size == 0:
+            return {"t_ms": np.zeros((0,), dtype=np.float64)}
+        m = (t >= float(t0_ms)) & (t <= float(t1_ms))
+        idx = np.where(m)[0]
+        if idx.size == 0:
+            return {"t_ms": np.zeros((0,), dtype=np.float64)}
+
+        i0 = int(idx[0])
+        i1 = int(idx[-1]) + 1
+
+        def _stack_arr(q: deque[np.ndarray], *, shape: tuple[int, ...]) -> np.ndarray:
+            arrs = list(q)[i0:i1]
+            if not arrs:
+                return np.zeros((0,) + shape, dtype=np.float64)
+            return np.stack(arrs, axis=0)
+
+        out: dict[str, Any] = {
+            "t_ms": t[i0:i1].astype(np.float64),
+            "track_xyz": _stack_arr(self.track_xyz, shape=(3,)),
+            "lm_xyz": _stack_arr(self.lm_xyz, shape=(21, 3)),
+            "pose_valid": np.asarray(list(self.pose_valid)[i0:i1], dtype=bool),
+            "avg_speed": np.asarray(list(self.avg_speed)[i0:i1], dtype=np.float64),
+            "max_speed": np.asarray(list(self.max_speed)[i0:i1], dtype=np.float64),
+            "dominant_angle_deg": np.asarray(list(self.ang_deg)[i0:i1], dtype=np.float64),
+            "direction_concentration": np.asarray(list(self.conc)[i0:i1], dtype=np.float64),
+            "n_pixels": np.asarray(list(self.npx)[i0:i1], dtype=np.float64),
+            "threshold": np.asarray(list(self.thr)[i0:i1], dtype=np.float64),
+            "flow_valid": np.asarray(list(self.flow_valid)[i0:i1], dtype=bool),
+            "hand_side": list(self.hand_side)[i0:i1],
+            "pred_label": list(self.pred_label)[i0:i1],
+            "pred_p": np.asarray(list(self.pred_p)[i0:i1], dtype=np.float64),
+        }
+        return out
+
+
+class _AnnotationManager:
+    def __init__(
+        self,
+        *,
+        labels_sorted: list[str],
+        label_desc: dict[str, str],
+        session_dir: Path,
+        dataset_root: Path,
+        dt_ms: float,
+        feat_cfg: FeatureConfig,
+        mirror_view: bool,
+        flip_features: bool,
+        pre_ms: float,
+        post_ms: float,
+    ) -> None:
+        self.labels_sorted = list(labels_sorted)
+        self.label_desc = dict(label_desc)
+        self.session_dir = session_dir
+        self.dataset_root = dataset_root
+        self.dt_ms = float(dt_ms)
+        self.feat_cfg = feat_cfg
+        self.mirror_view = bool(mirror_view)
+        self.flip_features = bool(flip_features)
+        self.pre_ms = float(pre_ms)
+        self.post_ms = float(post_ms)
+
+        self.session_start_ms: float | None = None
+
+        # UI / state
+        self.enabled = True
+        self.armed_label = self.labels_sorted[0] if self.labels_sorted else ""
+        self.capturing = False
+        self.capture_label = ""
+        self.capture_start_ms = 0.0
+        self.capture_end_target_ms: float | None = None  # post-buffer target
+        self.capture_id = 0
+        self.counts: dict[str, int] = {}
+
+        # Buffers: keep enough for pre/post and a full gesture window
+        self.ring = _AnnoRing(max_ms=max(6000.0, float(pre_ms + post_ms + 3000.0)))
+
+        # Exports
+        self.ann_dir = (self.session_dir / "annotations").resolve()
+        self.ann_dir.mkdir(parents=True, exist_ok=True)
+        self.captures_jsonl = self.ann_dir / "captures.jsonl"
+        self.segments_csv = self.ann_dir / "segments.csv"
+        self.confusion_json = self.ann_dir / "confusion_counts.json"
+
+        # Session dir name is already `live_YYYYmmdd-HHMMSS`
+        self.dataset_dir = (self.dataset_root / self.session_dir.name).resolve()
+        self.dataset_dir.mkdir(parents=True, exist_ok=True)
+        self.dataset_train_dir = (self.dataset_dir / "train").resolve()
+        self.dataset_train_dir.mkdir(parents=True, exist_ok=True)
+        self.manifest_csv = self.dataset_dir / "manifest.csv"
+        self._manifest_rows: list[dict[str, Any]] = self._load_manifest_rows()
+
+        self._hotkeys = self._build_hotkeys()
+        self._buttons: list[_Button] = []
+        self._layout_valid_for: tuple[int, int] | None = None
+
+        self._conf_counts: dict[str, dict[str, int]] = self._load_confusion()
+
+        # Per-inference tensors inside the session (for per-capture dumps)
+        self._infer_t_ms: deque[float] = deque()
+        self._infer_x_seq: deque[np.ndarray] = deque()
+        self._infer_probs: deque[np.ndarray] = deque()
+        self._infer_ema_probs: deque[np.ndarray] = deque()
+
+    def _load_confusion(self) -> dict[str, dict[str, int]]:
+        if not self.confusion_json.exists():
+            return {}
+        try:
+            d = json.loads(self.confusion_json.read_text(encoding="utf-8"))
+            if isinstance(d, dict):
+                out: dict[str, dict[str, int]] = {}
+                for gt, row in d.items():
+                    if not isinstance(row, dict):
+                        continue
+                    out[str(gt)] = {str(k): int(v) for k, v in row.items()}
+                return out
+        except Exception:
+            return {}
+        return {}
+
+    def _save_confusion(self) -> None:
+        self.confusion_json.write_text(
+            json.dumps(self._conf_counts, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def _load_manifest_rows(self) -> list[dict[str, Any]]:
+        if not self.manifest_csv.exists():
+            return []
+        try:
+            import csv as _csv
+
+            with self.manifest_csv.open("r", encoding="utf-8", newline="") as f:
+                r = _csv.DictReader(f)
+                return [dict(row) for row in r]
+        except Exception:
+            return []
+
+    def _save_manifest(self) -> None:
+        write_manifest_csv(self.manifest_csv, self._manifest_rows)
+
+    def _build_hotkeys(self) -> dict[int, str]:
+        keys = "1234567890qwertyuiopasdfghjklzxcvbnm"
+        out: dict[int, str] = {}
+        for i, lab in enumerate(self.labels_sorted):
+            if i >= len(keys):
+                break
+            out[ord(keys[i])] = lab
+        return out
+
+    def _label_text(self, label: str) -> str:
+        desc = self.label_desc.get(label, "")
+        if desc:
+            return f"{label} — {desc}"
+        return label
+
+    def _ensure_layout(self, *, frame_w: int, frame_h: int) -> None:
+        if self._layout_valid_for == (int(frame_w), int(frame_h)) and self._buttons:
+            return
+
+        margin = 10
+        btn_h = 26
+        btn_w = 360
+        gap = 6
+        cols = 2 if len(self.labels_sorted) > 7 else 1
+        col_gap = 10
+        rows = int(np.ceil(len(self.labels_sorted) / float(cols))) if cols else 0
+
+        total_w = cols * btn_w + (cols - 1) * col_gap
+        x0 = max(margin, int(frame_w - margin - total_w))
+        y0 = 60
+
+        buttons: list[_Button] = []
+        for idx, lab in enumerate(self.labels_sorted):
+            col = idx // rows if rows else 0
+            row = idx % rows if rows else idx
+            bx = int(x0 + col * (btn_w + col_gap))
+            by = int(y0 + row * (btn_h + gap))
+            hk = ""
+            for k, v in self._hotkeys.items():
+                if v == lab:
+                    hk = chr(int(k))
+                    break
+            text = self._label_text(lab)
+            if hk:
+                text = f"[{hk}] {text}"
+            buttons.append(_Button(label=lab, text=text, rect=_Rect(bx, by, btn_w, btn_h), hotkey=hk))
+
+        self._buttons = buttons
+        self._layout_valid_for = (int(frame_w), int(frame_h))
+
+    def on_mouse(self, event: int, x: int, y: int, flags: int, param: Any) -> None:  # noqa: ANN401
+        if not self.enabled:
+            return
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        for b in self._buttons:
+            if b.rect.contains(int(x), int(y)):
+                self.toggle_capture(b.label, now_ms=_now_ms())
+                return
+
+    def on_key(self, key: int, *, now_ms: float) -> None:
+        if not self.enabled:
+            return
+        if key in self._hotkeys:
+            self.armed_label = self._hotkeys[int(key)]
+            return
+        if key == ord(" "):
+            if self.armed_label:
+                self.toggle_capture(self.armed_label, now_ms=float(now_ms))
+            return
+
+    def toggle_capture(self, label: str, *, now_ms: float) -> None:
+        if not label:
+            return
+        if not self.capturing:
+            self.capturing = True
+            self.capture_label = str(label)
+            self.capture_start_ms = float(now_ms) - float(self.pre_ms)
+            self.capture_end_target_ms = None
+            return
+
+        # Already capturing: only allow stopping the same label
+        if str(label) != str(self.capture_label):
+            return
+        if self.capture_end_target_ms is None:
+            self.capture_end_target_ms = float(now_ms) + float(self.post_ms)
+
+    def on_frame(
+        self,
+        *,
+        t_wall_ms: float,
+        track_xyz: np.ndarray,
+        lm_xyz: np.ndarray,
+        pose_valid: bool,
+        flow_feats: dict[str, float],
+        flow_valid: bool,
+        hand_side: str,
+        pred_label: str,
+        pred_p: float,
+        did_infer: bool,
+        x_seq: np.ndarray | None,
+        probs: np.ndarray | None,
+        ema_probs: np.ndarray | None,
+    ) -> None:
+        if self.session_start_ms is None:
+            self.session_start_ms = float(t_wall_ms)
+
+        self.ring.push(
+            t_ms=float(t_wall_ms),
+            track_xyz=track_xyz,
+            lm_xyz=lm_xyz,
+            pose_valid=bool(pose_valid),
+            flow_feats=flow_feats,
+            flow_valid=bool(flow_valid),
+            hand_side=str(hand_side),
+            pred_label=str(pred_label),
+            pred_p=float(pred_p),
+        )
+
+        if bool(did_infer) and x_seq is not None and probs is not None and ema_probs is not None:
+            self._infer_t_ms.append(float(t_wall_ms))
+            self._infer_x_seq.append(np.asarray(x_seq, dtype=np.float32))
+            self._infer_probs.append(np.asarray(probs, dtype=np.float32))
+            self._infer_ema_probs.append(np.asarray(ema_probs, dtype=np.float32))
+            while len(self._infer_t_ms) >= 2 and (self._infer_t_ms[-1] - self._infer_t_ms[0]) > float(self.ring.max_ms):
+                self._infer_t_ms.popleft()
+                self._infer_x_seq.popleft()
+                self._infer_probs.popleft()
+                self._infer_ema_probs.popleft()
+
+        if not self.capturing:
+            return
+        if self.capture_end_target_ms is None:
+            return
+        if float(t_wall_ms) < float(self.capture_end_target_ms):
+            return
+
+        # Finalize capture once post-buffer elapsed.
+        t0 = float(self.capture_start_ms)
+        t1 = float(self.capture_end_target_ms)
+        self._finalize_capture(t0_ms=t0, t1_ms=t1, pred_label=str(pred_label), pred_p=float(pred_p))
+
+        self.capturing = False
+        self.capture_label = ""
+        self.capture_end_target_ms = None
+
+    def draw(self, disp_bgr: np.ndarray) -> None:
+        if not self.enabled:
+            return
+        h, w = disp_bgr.shape[:2]
+        self._ensure_layout(frame_w=int(w), frame_h=int(h))
+
+        for b in self._buttons:
+            is_capture = self.capturing and (b.label == self.capture_label)
+            is_armed = (b.label == self.armed_label) and not is_capture
+
+            if is_capture:
+                color = (0, 0, 255)
+            elif is_armed:
+                color = (255, 0, 0)
+            else:
+                color = (50, 50, 50)
+
+            cv2.rectangle(disp_bgr, (b.rect.x, b.rect.y), (b.rect.x + b.rect.w, b.rect.y + b.rect.h), color, 2)
+            cv2.putText(
+                disp_bgr,
+                b.text[:60],
+                (b.rect.x + 6, b.rect.y + b.rect.h - 7),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (240, 240, 240),
+                1,
+            )
+
+        # HUD line
+        if self.capturing:
+            label = self._label_text(self.capture_label)
+            cv2.putText(
+                disp_bgr,
+                f"CAPTURING: {label}",
+                (10, h - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 0, 255),
+                2,
+            )
+        else:
+            armed = self._label_text(self.armed_label) if self.armed_label else ""
+            cv2.putText(
+                disp_bgr,
+                f"ANNOTATIONS: armed={armed} (SPACE start/stop)",
+                (10, h - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (200, 200, 200),
+                1,
+            )
+
+    def _majority(self, labs: list[str]) -> tuple[str, dict[str, int]]:
+        counts: dict[str, int] = {}
+        for lab in labs:
+            s = str(lab).strip()
+            if not s:
+                continue
+            counts[s] = int(counts.get(s, 0)) + 1
+        if not counts:
+            return "", {}
+        best = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+        return best, counts
+
+    def _finalize_capture(self, *, t0_ms: float, t1_ms: float, pred_label: str, pred_p: float) -> None:
+        self.capture_id += 1
+        cap_id = f"{self.capture_id:04d}"
+        gt = str(self.capture_label)
+        self.counts[gt] = int(self.counts.get(gt, 0)) + 1
+
+        seg = self.ring.slice(t0_ms=float(t0_ms), t1_ms=float(t1_ms))
+        t = np.asarray(seg.get("t_ms", np.zeros((0,), np.float64)), dtype=np.float64)
+        if t.size == 0:
+            return
+
+        # Session-relative segments.csv (ms)
+        sess0 = float(self.session_start_ms or float(t0_ms))
+        seg_start_rel = float(t0_ms - sess0)
+        seg_end_rel = float(t1_ms - sess0)
+        if not self.segments_csv.exists():
+            self.segments_csv.write_text("t_start_ms,t_end_ms,label\n", encoding="utf-8")
+        with self.segments_csv.open("a", encoding="utf-8", newline="") as f:
+            f.write(f"{seg_start_rel:.3f},{seg_end_rel:.3f},{gt}\n")
+
+        # Prediction majority inside segment (per-frame held prediction)
+        infer_t = np.asarray(self._infer_t_ms, dtype=np.float64)
+        infer_idx = np.where((infer_t >= float(t0_ms)) & (infer_t <= float(t1_ms)))[0]
+        infer_probs = None
+        infer_ema_probs = None
+        infer_x_obj = None
+        infer_t_sel = None
+        pred_majority = ""
+        pred_counts: dict[str, int] = {}
+
+        if infer_idx.size > 0:
+            # Majority on inference instants (more faithful than held per-frame label)
+            labs = []
+            for i in infer_idx.tolist():
+                p = self._infer_ema_probs[int(i)]
+                lab = self.labels_sorted[int(np.argmax(p))] if p.size else ""
+                labs.append(str(lab))
+            pred_majority, pred_counts = self._majority(labs)
+
+            infer_t_sel = infer_t[infer_idx].astype(np.float64)
+            infer_x_obj = np.asarray([self._infer_x_seq[int(i)] for i in infer_idx.tolist()], dtype=object)
+            infer_probs = np.stack([self._infer_probs[int(i)] for i in infer_idx.tolist()], axis=0).astype(np.float32)
+            infer_ema_probs = np.stack([self._infer_ema_probs[int(i)] for i in infer_idx.tolist()], axis=0).astype(np.float32)
+        else:
+            # Fallback: majority on held per-frame labels
+            pred_labs = [str(x) for x in (seg.get("pred_label") or [])]
+            pred_majority, pred_counts = self._majority(pred_labs)
+
+        # Update confusion counts
+        self._conf_counts.setdefault(gt, {})
+        if pred_majority:
+            self._conf_counts[gt][pred_majority] = int(self._conf_counts[gt].get(pred_majority, 0)) + 1
+        self._save_confusion()
+
+        # Export capture NPZ (session)
+        cap_npz = self.ann_dir / f"capture_{cap_id}.npz"
+        np.savez_compressed(
+            cap_npz,
+            t_wall_ms=t.astype(np.float64),
+            infer_t_wall_ms=(infer_t_sel if infer_t_sel is not None else np.zeros((0,), dtype=np.float64)),
+            x_seq_list=(infer_x_obj if infer_x_obj is not None else np.asarray([], dtype=object)),
+            probs_list=(infer_probs if infer_probs is not None else np.zeros((0, 0), dtype=np.float32)),
+            ema_probs_list=(infer_ema_probs if infer_ema_probs is not None else np.zeros((0, 0), dtype=np.float32)),
+            gt_label=np.array([gt], dtype=object),
+            pred_majority=np.array([pred_majority], dtype=object),
+            pred_counts=np.array([json.dumps(pred_counts, ensure_ascii=False, sort_keys=True)], dtype=object),
+            track_xyz=np.asarray(seg.get("track_xyz", np.zeros((0, 3), np.float64)), dtype=np.float32),
+            lm_xyz=np.asarray(seg.get("lm_xyz", np.zeros((0, 21, 3), np.float64)), dtype=np.float32),
+            pose_valid=np.asarray(seg.get("pose_valid", np.zeros((0,), bool)), dtype=bool),
+            avg_speed=np.asarray(seg.get("avg_speed", np.zeros((0,), np.float64)), dtype=np.float32),
+            max_speed=np.asarray(seg.get("max_speed", np.zeros((0,), np.float64)), dtype=np.float32),
+            dominant_angle_deg=np.asarray(seg.get("dominant_angle_deg", np.zeros((0,), np.float64)), dtype=np.float32),
+            direction_concentration=np.asarray(seg.get("direction_concentration", np.zeros((0,), np.float64)), dtype=np.float32),
+            n_pixels=np.asarray(seg.get("n_pixels", np.zeros((0,), np.float64)), dtype=np.float32),
+            threshold=np.asarray(seg.get("threshold", np.zeros((0,), np.float64)), dtype=np.float32),
+            flow_valid=np.asarray(seg.get("flow_valid", np.zeros((0,), bool)), dtype=bool),
+            hand_side=np.asarray(seg.get("hand_side", []), dtype=object),
+            meta_json=np.array(
+                [
+                    json.dumps(
+                        {
+                            "mirror_view": self.mirror_view,
+                            "flip_features": self.flip_features,
+                            "dt_ms": self.dt_ms,
+                            "pre_ms": self.pre_ms,
+                            "post_ms": self.post_ms,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                ],
+                dtype=object,
+            ),
+        )
+
+        # Append captures.jsonl
+        rec = {
+            "capture_id": cap_id,
+            "gt_label": gt,
+            "t_start_ms_rel_session": seg_start_rel,
+            "t_end_ms_rel_session": seg_end_rel,
+            "pred_majority": pred_majority,
+            "pred_counts": pred_counts,
+            "pose_valid_ratio": float(np.mean(np.asarray(seg.get("pose_valid"), dtype=bool))) if t.size else 0.0,
+            "flow_valid_ratio": float(np.mean(np.asarray(seg.get("flow_valid"), dtype=bool))) if t.size else 0.0,
+        }
+        with self.captures_jsonl.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True))
+            f.write("\n")
+
+        # Export training-ready sample
+        self._export_training_sample(
+            cap_id=cap_id,
+            gt_label=gt,
+            seg=seg,
+            t0_ms=float(t0_ms),
+            t1_ms=float(t1_ms),
+        )
+
+    def _export_training_sample(
+        self,
+        *,
+        cap_id: str,
+        gt_label: str,
+        seg: dict[str, Any],
+        t0_ms: float,
+        t1_ms: float,
+    ) -> None:
+        sample_id = f"{self.session_dir.name}_{cap_id}"
+        sample_dir = (self.dataset_train_dir / sample_id).resolve()
+        sample_dir.mkdir(parents=True, exist_ok=True)
+
+        t_wall = np.asarray(seg.get("t_ms", np.zeros((0,), np.float64)), dtype=np.float64)
+        t_rel = t_wall - float(t_wall[0]) if t_wall.size else t_wall
+
+        track = np.asarray(seg.get("track_xyz", np.zeros((0, 3), np.float64)), dtype=np.float64)
+        lms = np.asarray(seg.get("lm_xyz", np.zeros((0, 21, 3), np.float64)), dtype=np.float64)
+        pose_valid_raw = np.asarray(seg.get("pose_valid", np.zeros((0,), bool)), dtype=bool)
+
+        # Pose resample + derivatives
+        r_track = resample_linear(t_rel, track, dt_ms=float(self.dt_ms), axis_time=0)
+        r_lm = resample_linear(t_rel, lms, dt_ms=float(self.dt_ms), axis_time=0)
+        vel = finite_diff(r_track.t_ms, r_track.y, axis_time=0)
+        acc = finite_diff(r_track.t_ms, vel, axis_time=0)
+        pose_valid = r_track.valid & r_lm.valid
+
+        # Optflow resample (match datasets/optflow.py approach)
+        avg = resample_linear(t_rel, np.asarray(seg.get("avg_speed", []), dtype=np.float64), dt_ms=float(self.dt_ms), axis_time=0)
+        mx = resample_linear(t_rel, np.asarray(seg.get("max_speed", []), dtype=np.float64), dt_ms=float(self.dt_ms), axis_time=0)
+        conc = resample_linear(t_rel, np.asarray(seg.get("direction_concentration", []), dtype=np.float64), dt_ms=float(self.dt_ms), axis_time=0)
+        thr = resample_linear(t_rel, np.asarray(seg.get("threshold", []), dtype=np.float64), dt_ms=float(self.dt_ms), axis_time=0)
+
+        ang_deg = np.asarray(seg.get("dominant_angle_deg", []), dtype=np.float64)
+        ang_rad = np.deg2rad(ang_deg)
+        r_sin = resample_linear(t_rel, np.sin(ang_rad), dt_ms=float(self.dt_ms), axis_time=0)
+        r_cos = resample_linear(t_rel, np.cos(ang_rad), dt_ms=float(self.dt_ms), axis_time=0)
+        ang_out = (np.rad2deg(np.arctan2(r_sin.y, r_cos.y)) + 360.0) % 360.0
+
+        npx = resample_linear(t_rel, np.asarray(seg.get("n_pixels", []), dtype=np.float64), dt_ms=float(self.dt_ms), axis_time=0)
+        flow_valid_interp = avg.valid & mx.valid & conc.valid & thr.valid & r_sin.valid & r_cos.valid & npx.valid
+
+        raw_flow_valid = np.asarray(seg.get("flow_valid", np.zeros((0,), bool)), dtype=np.float64)
+        r_flow_valid = resample_linear(t_rel, raw_flow_valid, dt_ms=float(self.dt_ms), axis_time=0)
+        flow_valid = flow_valid_interp & r_flow_valid.valid & (r_flow_valid.y >= 0.5)
+
+        # Align lengths defensively
+        T = int(min(r_track.y.shape[0], avg.y.shape[0]))
+        t_reg = r_track.t_ms[:T]
+        pose_valid = pose_valid[:T]
+        flow_valid = flow_valid[:T]
+
+        pose_path = sample_dir / "pose_tensor.npz"
+        flow_path = sample_dir / "optflow_features.npz"
+        quality_path = sample_dir / "quality.json"
+
+        PoseTensor(
+            timestamps_ms=t_reg.astype(np.float32),
+            track_pos_xyz=r_track.y[:T].astype(np.float32),
+            track_vel_xyz=vel[:T].astype(np.float32),
+            track_acc_xyz=acc[:T].astype(np.float32),
+            landmarks_xyz=r_lm.y[:T].astype(np.float32) if bool(self.feat_cfg.use_landmarks) else None,
+            valid=pose_valid.astype(bool),
+            meta={
+                "source": "live_annotations",
+                "session": self.session_dir.name,
+                "capture_id": cap_id,
+                "gt_label": gt_label,
+                "mirror_view": self.mirror_view,
+                "flip_features": self.flip_features,
+                "resample_dt_ms": float(self.dt_ms),
+            },
+        ).to_npz(pose_path)
+
+        OptFlowFeatures(
+            timestamps_ms=t_reg.astype(np.float32),
+            avg_speed=avg.y[:T].astype(np.float32),
+            max_speed=mx.y[:T].astype(np.float32),
+            dominant_angle_deg=ang_out[:T].astype(np.float32),
+            direction_concentration=conc.y[:T].astype(np.float32),
+            n_pixels=np.round(npx.y[:T]).astype(np.int32),
+            threshold=thr.y[:T].astype(np.float32),
+            valid=flow_valid.astype(bool),
+            meta={
+                "source": "live_annotations",
+                "session": self.session_dir.name,
+                "capture_id": cap_id,
+                "gt_label": gt_label,
+                "resample_dt_ms": float(self.dt_ms),
+            },
+        ).to_npz(flow_path)
+
+        q = {
+            "sample_id": sample_id,
+            "dataset": "annotated",
+            "split": "train",
+            "label": gt_label,
+            "pose_valid_ratio": float(np.mean(pose_valid)) if pose_valid.size else 0.0,
+            "optflow_valid_ratio": float(np.mean(flow_valid)) if flow_valid.size else 0.0,
+            "t_start_wall_ms": float(t0_ms),
+            "t_end_wall_ms": float(t1_ms),
+        }
+        quality_path.write_text(json.dumps(q, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        repo_root = _repo_root()
+        row = {
+            "sample_id": sample_id,
+            "dataset": "annotated",
+            "split": "train",
+            "label": gt_label,
+            "source_uri": f"live://{self.session_dir.name}#{cap_id}",
+            "pose_npz": str(pose_path.relative_to(repo_root).as_posix()),
+            "optflow_npz": str(flow_path.relative_to(repo_root).as_posix()),
+            "quality_json": str(quality_path.relative_to(repo_root).as_posix()),
+        }
+        self._manifest_rows.append(row)
+        self._save_manifest()
 
 
 def _load_bundle(run_dir: Path) -> tuple[Path, NormStats, dict[str, int], float]:
@@ -510,6 +1201,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--reset-iou-thr", type=float, default=0.10, help="Reset if bbox IoU drops below this threshold")
     p.add_argument("--reset-center-jump", type=float, default=0.25, help="Reset if bbox center jumps more than this (normalized)")
     p.add_argument("--reset-side-frames", type=int, default=3, help="Reset if hand side (L/R) changes for N consecutive frames")
+
+    # Live annotations
+    p.add_argument("--annotations", action=argparse.BooleanOptionalAction, default=False, help="Enable live gesture annotation mode (buttons + hotkeys)")
+    p.add_argument("--annot-pre-ms", type=float, default=300.0, help="Pre-buffer duration (ms) included before capture start")
+    p.add_argument("--annot-post-ms", type=float, default=300.0, help="Post-buffer duration (ms) included after capture end")
+    p.add_argument("--annot-dataset-root", default="data/annotated", help="Root folder for training-ready exports (gitignored)")
     args = p.parse_args(argv)
 
     if torch is None:
@@ -554,6 +1251,7 @@ def main(argv: list[str] | None = None) -> int:
     last_infer = 0.0
     ema_probs = None
     last_probs = None
+    last_x_seq = None
     last_topk = None
     last_pred_label = ""
     last_pred_idx = -1
@@ -582,6 +1280,27 @@ def main(argv: list[str] | None = None) -> int:
             args=args,
             labels_sorted=labels_sorted,
         )
+
+    ann: _AnnotationManager | None = None
+    if bool(getattr(args, "annotations", False)):
+        if logger is None:
+            raise SystemExit("Annotations require logging (do not use --no-log with --annotations).")
+        ds_root = Path(str(args.annot_dataset_root)).expanduser()
+        if not ds_root.is_absolute():
+            ds_root = (_repo_root() / ds_root).resolve()
+        ann = _AnnotationManager(
+            labels_sorted=labels_sorted,
+            label_desc=label_desc,
+            session_dir=logger.out_dir,
+            dataset_root=ds_root,
+            dt_ms=float(dt_ms),
+            feat_cfg=feat_cfg,
+            mirror_view=bool(args.mirror_view),
+            flip_features=bool(args.flip_features),
+            pre_ms=float(args.annot_pre_ms),
+            post_ms=float(args.annot_post_ms),
+        )
+        cv2.setMouseCallback(win, ann.on_mouse)
 
     def _reset_state(reason: str) -> None:
         nonlocal prev_roi_gray, origin, buf, last_infer, ema_probs
@@ -765,6 +1484,7 @@ def main(argv: list[str] | None = None) -> int:
                     a = float(args.ema)
                     ema_probs = a * ema_probs + (1.0 - a) * probs
                 last_probs = probs
+                last_x_seq = x_seq
 
         # HUD
         if ema_probs is not None:
@@ -885,8 +1605,32 @@ def main(argv: list[str] | None = None) -> int:
                     reset_reason=(reset_reason or None),
                 )
 
+        # Annotations (per frame)
+        if ann is not None:
+            side_frame = ""
+            if bbox is not None:
+                side_frame = _hand_side_from_bbox(bbox, frame_w=frame_w)
+            ann.on_frame(
+                t_wall_ms=float(now * 1000.0),
+                track_xyz=track,
+                lm_xyz=lm,
+                pose_valid=bool(pose_valid),
+                flow_feats=flow_feats,
+                flow_valid=bool(flow_valid),
+                hand_side=str(side_frame),
+                pred_label=str(last_pred_label),
+                pred_p=float(last_pred_p),
+                did_infer=bool(did_infer),
+                x_seq=(last_x_seq if bool(did_infer) else None),
+                probs=(last_probs if bool(did_infer) else None),
+                ema_probs=(ema_probs if bool(did_infer) else None),
+            )
+            ann.draw(disp)
+
         cv2.imshow(win, disp)
         key = cv2.waitKey(1) & 0xFF
+        if ann is not None and key not in (255,):
+            ann.on_key(int(key), now_ms=float(now * 1000.0))
         if key == ord("q"):
             break
         if key == ord("r"):

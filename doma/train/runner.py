@@ -16,8 +16,19 @@ except Exception:  # pragma: no cover
     nn = object  # type: ignore[assignment]
     DataLoader = object  # type: ignore[assignment]
 
-from .data import FeatureConfig, GestureDataset, NormStats, SampleRow, collate_padded, compute_norm_stats
-from .metrics import classification_report_dict, compute_basic_metrics, confusion_matrix_counts
+from .data import (
+    FeatureConfig,
+    GestureDataset,
+    NormStats,
+    SampleRow,
+    collate_padded,
+    compute_norm_stats,
+)
+from .metrics import (
+    classification_report_dict,
+    compute_basic_metrics,
+    confusion_matrix_counts,
+)
 from .model import CNNLSTMClassifier, ModelConfig, export_onnx
 from .plots import plot_confusion_matrix, plot_training_curves
 from .utils import dataclass_to_json, save_json, set_seed
@@ -54,8 +65,13 @@ class TrainConfig:
     bidirectional: bool = True
     dropout: float = 0.2
 
+    # optional init
+    init_ckpt: str = ""
 
-def _split_rows(rows: list[SampleRow]) -> tuple[list[SampleRow], list[SampleRow], list[SampleRow]]:
+
+def _split_rows(
+    rows: list[SampleRow],
+) -> tuple[list[SampleRow], list[SampleRow], list[SampleRow]]:
     tr = [r for r in rows if r.split == "train"]
     va = [r for r in rows if r.split == "val"]
     te = [r for r in rows if r.split == "test"]
@@ -86,7 +102,12 @@ def _class_weights(labels_idx: list[int], *, num_classes: int) -> "torch.Tensor"
     return torch.tensor(w.astype(np.float32))
 
 
-def _predict(model: CNNLSTMClassifier, loader: DataLoader, *, device: "torch.device") -> tuple[np.ndarray, np.ndarray]:
+def _predict(
+    model: CNNLSTMClassifier,
+    loader: DataLoader,
+    *,
+    device: "torch.device",
+) -> tuple[np.ndarray, np.ndarray]:
     if torch is None:  # pragma: no cover
         raise RuntimeError("PyTorch required")
     model.eval()
@@ -104,9 +125,13 @@ def _predict(model: CNNLSTMClassifier, loader: DataLoader, *, device: "torch.dev
     return np.asarray(ys, dtype=np.int64), np.asarray(ps, dtype=np.int64)
 
 
-def train_run(cfg: TrainConfig, *, rows: list[SampleRow], label_to_idx: dict[str, int]) -> Path:
+def train_run(
+    cfg: TrainConfig, *, rows: list[SampleRow], label_to_idx: dict[str, int]
+) -> Path:
     if torch is None:  # pragma: no cover
-        raise RuntimeError("PyTorch required (install optional extra 'train' or 'raft').")
+        raise RuntimeError(
+            "PyTorch required (install optional extra 'train' or 'raft')."
+        )
 
     set_seed(int(cfg.seed))
     device = _device_from_cfg(cfg.device)
@@ -119,10 +144,25 @@ def train_run(cfg: TrainConfig, *, rows: list[SampleRow], label_to_idx: dict[str
     )
 
     train_rows, val_rows, test_rows = _split_rows(rows)
-    norm = compute_norm_stats(train_rows, feat_cfg=feat_cfg, label_to_idx=label_to_idx, max_samples=0)
+    norm = compute_norm_stats(
+        train_rows,
+        feat_cfg=feat_cfg,
+        label_to_idx=label_to_idx,
+        max_samples=0,
+    )
 
-    ds_tr = GestureDataset(train_rows, label_to_idx=label_to_idx, feat_cfg=feat_cfg, norm=norm)
-    ds_va = GestureDataset(val_rows, label_to_idx=label_to_idx, feat_cfg=feat_cfg, norm=norm)
+    ds_tr = GestureDataset(
+        train_rows,
+        label_to_idx=label_to_idx,
+        feat_cfg=feat_cfg,
+        norm=norm,
+    )
+    ds_va = GestureDataset(
+        val_rows,
+        label_to_idx=label_to_idx,
+        feat_cfg=feat_cfg,
+        norm=norm,
+    )
 
     dl_tr = DataLoader(
         ds_tr,
@@ -161,14 +201,33 @@ def train_run(cfg: TrainConfig, *, rows: list[SampleRow], label_to_idx: dict[str
     )
     model = CNNLSTMClassifier(mcfg).to(device)
 
+    if str(cfg.init_ckpt).strip():
+        ckpt_path = Path(str(cfg.init_ckpt)).expanduser()
+        if not ckpt_path.is_absolute():
+            ckpt_path = (Path.cwd() / ckpt_path).resolve()
+        ckpt = torch.load(ckpt_path, map_location=device)
+        if "model" not in ckpt:
+            raise ValueError(
+                f"Invalid checkpoint (missing 'model'): {ckpt_path}"
+            )
+        model.load_state_dict(ckpt["model"], strict=True)
+
     if bool(cfg.class_weight):
-        labels_idx = [label_to_idx[r.label] for r in train_rows if r.label in label_to_idx]
+        labels_idx = [
+            label_to_idx[r.label]
+            for r in train_rows
+            if r.label in label_to_idx
+        ]
         w = _class_weights(labels_idx, num_classes=num_classes).to(device)
     else:
         w = None
 
     loss_fn = nn.CrossEntropyLoss(weight=w)
-    opt = torch.optim.AdamW(model.parameters(), lr=float(cfg.lr), weight_decay=float(cfg.weight_decay))
+    opt = torch.optim.AdamW(
+        model.parameters(),
+        lr=float(cfg.lr),
+        weight_decay=float(cfg.weight_decay),
+    )
 
     # Output structure
     run_name = cfg.run_name.strip() or time.strftime("classify_%Y%m%d-%H%M%S")
@@ -179,9 +238,20 @@ def train_run(cfg: TrainConfig, *, rows: list[SampleRow], label_to_idx: dict[str
     dataclass_to_json(run_dir / "train_config.json", cfg)
     dataclass_to_json(run_dir / "model_config.json", mcfg)
     norm.to_npz(run_dir / "norm.npz")
-    save_json(run_dir / "label_map.json", {"label_to_idx": label_to_idx, "idx_to_label": {str(v): k for k, v in label_to_idx.items()}})
+    save_json(
+        run_dir / "label_map.json",
+        {
+            "label_to_idx": label_to_idx,
+            "idx_to_label": {str(v): k for k, v in label_to_idx.items()},
+        },
+    )
 
-    history: dict[str, list[float]] = {"train_loss": [], "val_loss": [], "val_accuracy": [], "val_macro_f1": []}
+    history: dict[str, list[float]] = {
+        "train_loss": [],
+        "val_loss": [],
+        "val_accuracy": [],
+        "val_macro_f1": [],
+    }
     best_macro_f1 = -1.0
     best_path = run_dir / "checkpoints" / "best.pt"
 
@@ -212,7 +282,9 @@ def train_run(cfg: TrainConfig, *, rows: list[SampleRow], label_to_idx: dict[str
                 lengths = batch["lengths"].to(device)
                 y = batch["y"].to(device)
                 logits = model(x, lengths)
-                vlosses.append(float(loss_fn(logits, y).detach().cpu().item()))
+                vlosses.append(
+                    float(loss_fn(logits, y).detach().cpu().item())
+                )
                 pred = torch.argmax(logits, dim=1)
                 ys_all.extend(y.detach().cpu().numpy().astype(int).tolist())
                 ps_all.extend(pred.detach().cpu().numpy().astype(int).tolist())
@@ -231,7 +303,11 @@ def train_run(cfg: TrainConfig, *, rows: list[SampleRow], label_to_idx: dict[str
         if metrics.macro_f1 > best_macro_f1:
             best_macro_f1 = float(metrics.macro_f1)
             torch.save(
-                {"model": model.state_dict(), "model_config": asdict(mcfg), "label_to_idx": label_to_idx},
+                {
+                    "model": model.state_dict(),
+                    "model_config": asdict(mcfg),
+                    "label_to_idx": label_to_idx,
+                },
                 best_path,
             )
 
@@ -240,26 +316,63 @@ def train_run(cfg: TrainConfig, *, rows: list[SampleRow], label_to_idx: dict[str
 
     # Final test eval (if test split exists)
     if test_rows:
-        ds_te = GestureDataset(test_rows, label_to_idx=label_to_idx, feat_cfg=feat_cfg, norm=norm)
-        dl_te = DataLoader(ds_te, batch_size=int(cfg.batch_size), shuffle=False, num_workers=int(cfg.num_workers), collate_fn=collate_padded)
+        ds_te = GestureDataset(
+            test_rows,
+            label_to_idx=label_to_idx,
+            feat_cfg=feat_cfg,
+            norm=norm,
+        )
+        dl_te = DataLoader(
+            ds_te,
+            batch_size=int(cfg.batch_size),
+            shuffle=False,
+            num_workers=int(cfg.num_workers),
+            collate_fn=collate_padded,
+        )
 
         ckpt = torch.load(best_path, map_location=device)
         model.load_state_dict(ckpt["model"])
         y_true, y_pred = _predict(model, dl_te, device=device)
 
-        labels_sorted = [lab for lab, _ in sorted(label_to_idx.items(), key=lambda kv: kv[1])]
+        labels_sorted = [
+            lab
+            for lab, _ in sorted(label_to_idx.items(), key=lambda kv: kv[1])
+        ]
         rep = classification_report_dict(y_true, y_pred, labels=labels_sorted)
         cm = confusion_matrix_counts(y_true, y_pred, num_classes=num_classes)
-        plot_confusion_matrix(cm, labels=labels_sorted, out_path=run_dir / "confusion_matrix.png", normalize=True)
+        plot_confusion_matrix(
+            cm,
+            labels=labels_sorted,
+            out_path=run_dir / "confusion_matrix.png",
+            normalize=True,
+        )
 
-        save_json(run_dir / "test_metrics.json", {"basic": asdict(compute_basic_metrics(y_true, y_pred, num_classes=num_classes)), "report": rep})
-        save_json(run_dir / "confusion_matrix_counts.json", {"labels": labels_sorted, "cm": cm.tolist()})
+        save_json(
+            run_dir / "test_metrics.json",
+            {
+                "basic": asdict(
+                    compute_basic_metrics(
+                        y_true, y_pred, num_classes=num_classes
+                    )
+                ),
+                "report": rep,
+            },
+        )
+        save_json(
+            run_dir / "confusion_matrix_counts.json",
+            {"labels": labels_sorted, "cm": cm.tolist()},
+        )
 
     # ONNX export for deployment/poc
     try:
         ckpt = torch.load(best_path, map_location=device)
         model.load_state_dict(ckpt["model"])
-        export_onnx(model, out_path=run_dir / "model.onnx", opset=17, max_len=256)
+        export_onnx(
+            model,
+            out_path=run_dir / "model.onnx",
+            opset=17,
+            max_len=256,
+        )
     except Exception:
         # ONNX export is best-effort (keeps training usable if export fails on some envs)
         pass
@@ -281,14 +394,20 @@ def evaluate_checkpoint(
     if torch is None:  # pragma: no cover
         raise RuntimeError("PyTorch required")
 
-    run_dir = ckpt_path.parent.parent if ckpt_path.name == "best.pt" else ckpt_path.parent
+    run_dir = (
+        ckpt_path.parent.parent
+        if ckpt_path.name == "best.pt"
+        else ckpt_path.parent
+    )
     norm = NormStats.from_npz(run_dir / "norm.npz")
     label_to_idx = (run_dir / "label_map.json")
     label_map = None
     if label_to_idx.exists():
         import json
 
-        label_map = json.loads(label_to_idx.read_text(encoding="utf-8")).get("label_to_idx", {})
+        label_map = json.loads(
+            label_to_idx.read_text(encoding="utf-8")
+        ).get("label_to_idx", {})
     if not isinstance(label_map, dict) or not label_map:
         raise ValueError("Missing label_map.json next to checkpoint")
     label_map = {str(k): int(v) for k, v in label_map.items()}
@@ -298,9 +417,19 @@ def evaluate_checkpoint(
     rows = read_manifest_rows(manifest_csv)
     rows = [r for r in rows if r.split == split]
 
-    feat_cfg = FeatureConfig(use_landmarks=use_landmarks, include_pose=include_pose, include_optflow=include_optflow, angle_as_sincos=True)
+    feat_cfg = FeatureConfig(
+        use_landmarks=use_landmarks,
+        include_pose=include_pose,
+        include_optflow=include_optflow,
+        angle_as_sincos=True,
+    )
     ds = GestureDataset(rows, label_to_idx=label_map, feat_cfg=feat_cfg, norm=norm)
-    dl = DataLoader(ds, batch_size=int(batch_size), shuffle=False, collate_fn=collate_padded)
+    dl = DataLoader(
+        ds,
+        batch_size=int(batch_size),
+        shuffle=False,
+        collate_fn=collate_padded,
+    )
 
     device_t = _device_from_cfg(device)
 
@@ -310,9 +439,18 @@ def evaluate_checkpoint(
     model.load_state_dict(ckpt["model"])
 
     y_true, y_pred = _predict(model, dl, device=device_t)
-    labels_sorted = [lab for lab, _ in sorted(label_map.items(), key=lambda kv: kv[1])]
+    labels_sorted = [
+        lab for lab, _ in sorted(label_map.items(), key=lambda kv: kv[1])
+    ]
     rep = classification_report_dict(y_true, y_pred, labels=labels_sorted)
-    cm = confusion_matrix_counts(y_true, y_pred, num_classes=len(labels_sorted))
+    cm = confusion_matrix_counts(
+        y_true, y_pred, num_classes=len(labels_sorted)
+    )
     basic = compute_basic_metrics(y_true, y_pred, num_classes=len(labels_sorted))
-    return {"basic": asdict(basic), "report": rep, "labels": labels_sorted, "cm": cm.tolist()}
+    return {
+        "basic": asdict(basic),
+        "report": rep,
+        "labels": labels_sorted,
+        "cm": cm.tolist(),
+    }
 
