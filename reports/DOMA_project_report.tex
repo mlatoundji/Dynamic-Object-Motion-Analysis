@@ -81,8 +81,8 @@ Sur les pixels du masque, on définit les métriques suivantes, stockées dans \
 
 À chaque frame $t$, la pose est représentée par :
 \begin{itemize}
-  \item \textbf{Track 3D} : position $\mathbf{p}_t$, vitesse $\mathbf{v}_t$, accélération $\mathbf{a}_t$ (concaténés en un vecteur de dimension 9 par frame pour le modèle ST-GCN-Opt).
-  \item \textbf{Skeleton + motion} (pour ST-GCN) : soit les 21 landmarks $\mathbf{L}_t \in \mathbb{R}^{21 \times 3}$ (transposés en tenseur $3 \times T \times 21$), avec motion $\mathbf{M}_t = \mathbf{L}_t - \mathbf{L}_{t-1}$ (et zéro à $t=0$), soit, en l’absence de landmarks, le track seul (position en skeleton, vitesse en motion), avec un seul nœud ($n=1$).
+  \item \textbf{Track 3D} : position $\mathbf{p}_t$, vitesse $\mathbf{v}_t$, accélération $\mathbf{a}_t$ (9D par frame). Utilisé dans le vecteur unifié (CNN-LSTM, Temporal Transformer) et comme branche dédiée dans ST-GCN-Opt.
+  \item \textbf{Landmarks et skeleton + motion} : les 21 landmarks $\mathbf{L}_t \in \mathbb{R}^{21 \times 3}$ sont, lorsqu'ils sont disponibles, inclus dans le vecteur unifié par frame (CNN-LSTM, Temporal Transformer), d'où $F=78$. Ils servent aussi à construire la représentation skeleton+motion pour ST-GCN et la branche ST-GCN de ST-GCN-Opt (tenseur $3 \times T \times 21$, motion $\mathbf{M}_t = \mathbf{L}_t - \mathbf{L}_{t-1}$) ; en l’absence de landmarks, un seul nœud à partir du track ($n=1$).
 \end{itemize}
 
 Les entrées des modèles sont donc toutes dérivées des deux sources \textbf{pose} et \textbf{optflow} ; selon l’architecture, on utilise soit un vecteur concaténé par frame (Temporal Transformer, CNN-LSTM), soit skeleton+motion et/ou track+optflow (ST-GCN, ST-GCN-Opt), soit des images de flot par frame (Temporal ViT, pipeline ipn\_flow).
