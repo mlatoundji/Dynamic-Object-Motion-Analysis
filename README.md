@@ -118,10 +118,8 @@ Définis dans `config/labels.py` (LABELS, LABEL_TO_TEXT, LABEL_TO_ID). Référen
 
 Pour chaque sample :
 
-- **`pose_*.npz`** — Track 3D (position, vitesse, accélération), optionnel 21 landmarks main (MediaPipe).
-- **`optflow_*.npz`** — Métriques de flot (vitesse moyenne/max, direction dominante, concentration, seuil).
-
-ST-GCN / stgcn_opt utilisent les **mêmes** fichiers : le pose est lu en skeleton+motion (et en track pour stgcn_opt), l’optflow tel quel. Donc **skeleton+motion** et **track+optflow** = représentations dérivées de **pose + optflow**.
+- **`pose.npz`** — Track 3D (position, vitesse, accélération), optionnel 21 landmarks main (MediaPipe).
+- **`optflow.npz`** — Métriques de flot (vitesse moyenne/max, direction dominante, concentration, seuil).
 
 Le **manifest** (`data/processed/manifest.csv`) liste tous les samples : `sample_id`, `split`, `label`, `pose_npz`, `optflow_npz` (chemins relatifs à la racine).
 
@@ -152,7 +150,7 @@ Un seul script : **`doma-train`**. Le dataloader et le format de batch dépenden
 **Exemples** :
 
 ```bash
-uv run doma-train --model temporal_transformer --manifest data/processed/manifest.csv --epochs 20 --batch-size 32 --output-dir models
+uv run doma-train --model temporal_transformer --epochs 20 --batch-size 32 --output-dir models
 uv run doma-train --model stgcn --epochs 20 --batch-size 32 --output-dir models
 uv run doma-train --model cnn_lstm --epochs 20 --batch-size 32 --output-dir models
 ```
@@ -170,6 +168,10 @@ Classification en temps réel (webcam ou vidéo) avec un run entraîné (recomma
 ```bash
 uv run doma-live-classifier --run models/<run_id> --source 0
 ```
+
+<p align="center">
+  <img src="docs/images/demo.gif" alt="DOMA Live Classifier" width="560" />
+</p>
 
 - **q** : quitter — **r** : reset.
 
