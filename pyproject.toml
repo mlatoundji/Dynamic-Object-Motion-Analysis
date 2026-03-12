@@ -23,6 +23,7 @@ dependencies = [
     "jupyterlab>=4.5.5",
     "scikit-learn>=1.0",
     "tqdm>=4.0",
+    "timm>=1.0.25",
 ]
 
 [tool.poetry]
@@ -39,14 +40,28 @@ raft = [
     "torch>=2.2",
     "torchvision>=0.17",
 ]
+train = [
+    "torch>=2.2",
+    "scikit-learn>=1.4",
+    "tqdm>=4.66",
+]
 dataset = [
     "pyyaml>=6.0",
     "tqdm>=4.66",
 ]
+vit = [
+    "timm>=0.9.0",
+]
 
 [project.scripts]
 doma-live = "doma.cli:main"
+<<<<<<< HEAD
 doma-train = "doma.modeling.train:main"
+=======
+doma-build-dataset = "doma.datasets.cli:main"
+doma-train = "doma.modeling.train:main"
+doma-live-classifier = "doma.live_classifier:main"
+>>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 
 
 [build-system]

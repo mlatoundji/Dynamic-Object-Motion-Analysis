@@ -1,0 +1,38 @@
+Run ID: temporal_transformer_20260307_212235
+Run dir: models/temporal_transformer_20260307_212235
+Log file: models/temporal_transformer_20260307_212235/train_log.log
+Device: mps
+output_dir=models  model=temporal_transformer  split_mode=train_test  batch_size=16  epochs=20  lr=0.0005  weight_decay=0.01  seed=None
+
+  train_loss=1.5667  val_loss=1.3917  accuracy=0.5516  precision(macro)=0.3799  recall(macro)=0.4198  f1(macro)=0.3263  f1(weighted)=0.5309
+  -> saved best.pt (best accuracy=0.5516)
+  train_loss=1.1665  val_loss=1.0102  accuracy=0.7043  precision(macro)=0.4923  recall(macro)=0.5093  f1(macro)=0.4504  f1(weighted)=0.6800
+  -> saved best.pt (best accuracy=0.7043)
+  train_loss=0.9795  val_loss=0.9540  accuracy=0.7199  precision(macro)=0.4868  recall(macro)=0.5703  f1(macro)=0.4869  f1(weighted)=0.6979
+  -> saved best.pt (best accuracy=0.7199)
+  train_loss=0.9283  val_loss=0.8521  accuracy=0.7565  precision(macro)=0.5689  recall(macro)=0.6217  f1(macro)=0.5643  f1(weighted)=0.7417
+  -> saved best.pt (best accuracy=0.7565)
+  train_loss=0.7975  val_loss=0.7775  accuracy=0.7789  precision(macro)=0.7029  recall(macro)=0.6195  f1(macro)=0.6012  f1(weighted)=0.7687
+  -> saved best.pt (best accuracy=0.7789)
+  train_loss=0.7073  val_loss=0.6433  accuracy=0.8168  precision(macro)=0.7022  recall(macro)=0.6695  f1(macro)=0.6582  f1(weighted)=0.8093
+  -> saved best.pt (best accuracy=0.8168)
+  train_loss=0.6237  val_loss=0.7820  accuracy=0.7671  precision(macro)=0.6710  recall(macro)=0.6261  f1(macro)=0.6135  f1(weighted)=0.7587
+  train_loss=0.6393  val_loss=0.6407  accuracy=0.8267  precision(macro)=0.7244  recall(macro)=0.7002  f1(macro)=0.7023  f1(weighted)=0.8256
+  -> saved best.pt (best accuracy=0.8267)
+  train_loss=0.5791  val_loss=0.8518  accuracy=0.7677  precision(macro)=0.7070  recall(macro)=0.6864  f1(macro)=0.6776  f1(weighted)=0.7699
+  train_loss=0.5611  val_loss=0.6197  accuracy=0.8366  precision(macro)=0.7573  recall(macro)=0.7288  f1(macro)=0.7355  f1(weighted)=0.8371
+  -> saved best.pt (best accuracy=0.8366)
+  train_loss=0.4930  val_loss=0.7395  accuracy=0.7950  precision(macro)=0.6598  recall(macro)=0.6930  f1(macro)=0.6345  f1(weighted)=0.7848
+  train_loss=0.4740  val_loss=0.6319  accuracy=0.8292  precision(macro)=0.7228  recall(macro)=0.7299  f1(macro)=0.7083  f1(weighted)=0.8249
+  train_loss=0.4320  val_loss=0.7464  accuracy=0.8043  precision(macro)=0.6947  recall(macro)=0.7302  f1(macro)=0.7015  f1(weighted)=0.8091
+  train_loss=0.4048  val_loss=0.7256  accuracy=0.8193  precision(macro)=0.7085  recall(macro)=0.7428  f1(macro)=0.7145  f1(weighted)=0.8247
+  train_loss=0.3968  val_loss=0.5977  accuracy=0.8484  precision(macro)=0.7451  recall(macro)=0.7636  f1(macro)=0.7507  f1(weighted)=0.8501
+  -> saved best.pt (best accuracy=0.8484)
+  train_loss=0.3637  val_loss=0.6280  accuracy=0.8398  precision(macro)=0.7383  recall(macro)=0.7662  f1(macro)=0.7464  f1(weighted)=0.8432
+  train_loss=0.3507  val_loss=0.6356  accuracy=0.8447  precision(macro)=0.7255  recall(macro)=0.7604  f1(macro)=0.7297  f1(weighted)=0.8420
+  train_loss=0.3464  val_loss=0.6105  accuracy=0.8497  precision(macro)=0.7422  recall(macro)=0.7640  f1(macro)=0.7477  f1(weighted)=0.8503
+  -> saved best.pt (best accuracy=0.8497)
+  train_loss=0.3348  val_loss=0.6247  accuracy=0.8466  precision(macro)=0.7331  recall(macro)=0.7658  f1(macro)=0.7441  f1(weighted)=0.8470
+  train_loss=0.3348  val_loss=0.6171  accuracy=0.8478  precision(macro)=0.7362  recall(macro)=0.7661  f1(macro)=0.7469  f1(weighted)=0.8487
+Metrics written to models/temporal_transformer_20260307_212235/metrics.json
+Best epoch: 18 (accuracy=0.8497)

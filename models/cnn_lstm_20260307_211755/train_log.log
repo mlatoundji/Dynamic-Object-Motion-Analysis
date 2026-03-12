@@ -1,0 +1,42 @@
+Run ID: cnn_lstm_20260307_211755
+Run dir: models/cnn_lstm_20260307_211755
+Log file: models/cnn_lstm_20260307_211755/train_log.log
+Device: mps
+output_dir=models  model=cnn_lstm  split_mode=train_test  batch_size=16  epochs=20  lr=0.0005  weight_decay=0.01  seed=None
+
+  train_loss=1.2248  val_loss=1.1243  accuracy=0.6652  precision(macro)=0.5322  recall(macro)=0.6073  f1(macro)=0.5435  f1(weighted)=0.6789
+  -> saved best.pt (best accuracy=0.6652)
+  train_loss=0.8451  val_loss=0.7470  accuracy=0.7913  precision(macro)=0.6733  recall(macro)=0.6702  f1(macro)=0.6580  f1(weighted)=0.7906
+  -> saved best.pt (best accuracy=0.7913)
+  train_loss=0.6925  val_loss=0.6430  accuracy=0.8186  precision(macro)=0.7021  recall(macro)=0.6935  f1(macro)=0.6904  f1(weighted)=0.8160
+  -> saved best.pt (best accuracy=0.8186)
+  train_loss=0.5711  val_loss=1.0281  accuracy=0.6950  precision(macro)=0.6159  recall(macro)=0.6985  f1(macro)=0.6165  f1(weighted)=0.6901
+  train_loss=0.4774  val_loss=0.6215  accuracy=0.8248  precision(macro)=0.6882  recall(macro)=0.6991  f1(macro)=0.6638  f1(weighted)=0.8145
+  -> saved best.pt (best accuracy=0.8248)
+  train_loss=0.4267  val_loss=0.5980  accuracy=0.8329  precision(macro)=0.7459  recall(macro)=0.7310  f1(macro)=0.7066  f1(weighted)=0.8284
+  -> saved best.pt (best accuracy=0.8329)
+  train_loss=0.3824  val_loss=0.6332  accuracy=0.8236  precision(macro)=0.6804  recall(macro)=0.7078  f1(macro)=0.6806  f1(weighted)=0.8136
+  train_loss=0.3436  val_loss=0.5571  accuracy=0.8491  precision(macro)=0.7415  recall(macro)=0.7529  f1(macro)=0.7413  f1(weighted)=0.8479
+  -> saved best.pt (best accuracy=0.8491)
+  train_loss=0.2922  val_loss=0.5623  accuracy=0.8385  precision(macro)=0.7528  recall(macro)=0.7494  f1(macro)=0.7306  f1(weighted)=0.8336
+  train_loss=0.2622  val_loss=0.6474  accuracy=0.8280  precision(macro)=0.7303  recall(macro)=0.7634  f1(macro)=0.7248  f1(weighted)=0.8272
+  train_loss=0.2197  val_loss=0.5649  accuracy=0.8559  precision(macro)=0.7787  recall(macro)=0.7709  f1(macro)=0.7576  f1(weighted)=0.8532
+  -> saved best.pt (best accuracy=0.8559)
+  train_loss=0.1797  val_loss=0.6217  accuracy=0.8578  precision(macro)=0.7965  recall(macro)=0.7992  f1(macro)=0.7820  f1(weighted)=0.8568
+  -> saved best.pt (best accuracy=0.8578)
+  train_loss=0.1492  val_loss=0.6089  accuracy=0.8590  precision(macro)=0.7944  recall(macro)=0.8004  f1(macro)=0.7877  f1(weighted)=0.8589
+  -> saved best.pt (best accuracy=0.8590)
+  train_loss=0.1285  val_loss=0.6121  accuracy=0.8720  precision(macro)=0.8061  recall(macro)=0.8126  f1(macro)=0.8027  f1(weighted)=0.8721
+  -> saved best.pt (best accuracy=0.8720)
+  train_loss=0.1130  val_loss=0.5882  accuracy=0.8752  precision(macro)=0.8009  recall(macro)=0.8190  f1(macro)=0.8054  f1(weighted)=0.8758
+  -> saved best.pt (best accuracy=0.8752)
+  train_loss=0.0918  val_loss=0.5635  accuracy=0.8801  precision(macro)=0.8168  recall(macro)=0.8212  f1(macro)=0.8132  f1(weighted)=0.8801
+  -> saved best.pt (best accuracy=0.8801)
+  train_loss=0.0811  val_loss=0.6042  accuracy=0.8776  precision(macro)=0.8113  recall(macro)=0.8245  f1(macro)=0.8132  f1(weighted)=0.8783
+  train_loss=0.0693  val_loss=0.5981  accuracy=0.8807  precision(macro)=0.8154  recall(macro)=0.8340  f1(macro)=0.8209  f1(weighted)=0.8821
+  -> saved best.pt (best accuracy=0.8807)
+  train_loss=0.0671  val_loss=0.5992  accuracy=0.8795  precision(macro)=0.8145  recall(macro)=0.8348  f1(macro)=0.8200  f1(weighted)=0.8808
+  train_loss=0.0629  val_loss=0.5951  accuracy=0.8832  precision(macro)=0.8168  recall(macro)=0.8363  f1(macro)=0.8226  f1(weighted)=0.8843
+  -> saved best.pt (best accuracy=0.8832)
+Metrics written to models/cnn_lstm_20260307_211755/metrics.json
+Best epoch: 20 (accuracy=0.8832)

@@ -1,0 +1,77 @@
+version: 1
+
+# Root folders (not committed)
+raw_root: data/raw
+processed_root: data/processed
+
+processing:
+  # Resample to a fixed timestep (spec §5.2)
+  dt_ms: 33.333   # ~30 FPS
+  # Resize ROI to stable size before Farnebäck flow
+  roi_size: [224, 224]
+  # MediaPipe backends
+  mediapipe:
+    backend: hands   # hands | holistic
+    max_num_hands: 1
+    min_detection_confidence: 0.5
+    min_tracking_confidence: 0.5
+
+outputs:
+  save_rgb_mp4: false
+  save_frames: false
+  save_pose_npz: true
+  save_optflow_npz: true
+  save_quality_json: true
+
+# Dataset-specific config blocks.
+datasets:
+  ipn_hand:
+    enabled: true
+    raw_dir: ipn_hand
+    # Expected: you downloaded/extracted IPN Hand into `${raw_root}/ipn_hand/...`
+    # If you have the official annotation txt/csv files, point them here.
+    annotations:
+      root: annotations
+    # Create val split by sampling videos from official TRAIN (anti-leak).
+    # Only used when official IPN annotation files are present under `annotations.root`.
+    val_ratio: 0.1
+    seed: 0
+    split:
+      train: []
+      val: []
+      test: []
+    subset_limit: 0   # 0 = no limit
+
+  jester:
+    enabled: true
+    raw_dir: jester
+    # Expected typical files (examples):
+    # - `${raw_root}/jester/labels.csv`
+    # - `${raw_root}/jester/train.csv`, `${raw_root}/jester/validation.csv`
+    # - frames under `${raw_root}/jester/20bn-jester-v1/<video_id>/*.jpg` or videos
+    subset_limit: 0
+
+  ms_asl:
+    enabled: true
+    raw_dir: ms_asl
+    annotations:
+      train_json: annotations/MSASL_train.json
+      val_json: annotations/MSASL_val.json
+      test_json: annotations/MSASL_test.json
+    download:
+      # MS-ASL/WLASL typically reference YouTube URLs/IDs.
+      enabled: true
+      tool: yt-dlp
+      max_retries: 3
+    subset_limit: 0
+
+  wlasl:
+    enabled: true
+    raw_dir: wlasl
+    annotations:
+      json: annotations/WLASL2000.json
+    download:
+      enabled: true
+      tool: yt-dlp
+      max_retries: 3
+    subset_limit: 0

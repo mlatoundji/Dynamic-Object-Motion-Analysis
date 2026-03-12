@@ -2,6 +2,7 @@
 .venv
 .mediapipe_models
 __pycache__/
+<<<<<<< HEAD
 uv.lock
 *.pt
 
@@ -16,3 +17,26 @@ synthetic/**/renders/
 synthetic/**/cache/
 
 models/**
+=======
+.docs/
+
+# Datasets (raw/processed) are large and must not be committed
+data/
+!data/.gitkeep
+!data/processed/.gitkeep
+!data/raw/.gitkeep
+
+# Synthetic generation outputs (renders, caches)
+synthetic/**/out/
+synthetic/**/renders/
+synthetic/**/cache/
+
+.cursor/
+
+doma/sessions/
+
+# reports: keep only .tex and .pdf; ignore aux, log, out, fls, etc.
+reports/*
+!reports/*.tex
+!reports/*.pdf
+>>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140

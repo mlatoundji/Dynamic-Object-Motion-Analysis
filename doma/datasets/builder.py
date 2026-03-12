@@ -13,7 +13,7 @@ from .manifest import sample_to_row, write_manifest_csv
 from .optflow import OptFlowExtractConfig, extract_optflow_features_stream
 from .pose import PoseExtractConfig, build_pose_tensor, extract_pose_stream
 from .schema import OptFlowFeatures, PoseTensor, SampleIndex
-from .video import iter_frames_dir, iter_video_frames
+from .video import iter_frames_dir, iter_video_frames, iter_video_frames_range
 
 
 @dataclass(frozen=True)
@@ -75,20 +75,40 @@ def process_sample(
     flow_path = sample_dir / "optflow_features.npz"
     quality_path = sample_dir / "quality.json"
 
-    need_pose = cfg.outputs.get("save_pose_npz", True) and (overwrite or not pose_path.exists())
-    need_flow = cfg.outputs.get("save_optflow_npz", True) and (overwrite or not flow_path.exists())
-    need_quality = cfg.outputs.get("save_quality_json", True) and (overwrite or not quality_path.exists())
+    need_pose = cfg.outputs.get("save_pose_npz", True) and (
+        overwrite or not pose_path.exists()
+    )
+    need_flow = cfg.outputs.get("save_optflow_npz", True) and (
+        overwrite or not flow_path.exists()
+    )
+    need_quality = cfg.outputs.get("save_quality_json", True) and (
+        overwrite or not quality_path.exists()
+    )
 
     if not (need_pose or need_flow or need_quality):
         return _artifact_dict(pose_path, flow_path, quality_path)
 
     def _frame_iter():
         count = 0
+        start_1 = sample.frame_start
+        end_1 = sample.frame_end
+        if max_frames and start_1 is not None:
+            # Cap the segment end by max_frames (inclusive indices).
+            end_cap = int(start_1) + int(max_frames) - 1
+            end_1 = min(int(end_1) if end_1 is not None else end_cap, end_cap)
+
         if vid_path.is_dir():
             fps = float(sample.fps or 30.0)
             it = iter_frames_dir(vid_path, fps=fps)
         else:
-            it = iter_video_frames(vid_path)
+            if start_1 is not None and end_1 is not None:
+                it = iter_video_frames_range(
+                    vid_path,
+                    start_1=int(start_1),
+                    end_1=int(end_1),
+                )
+            else:
+                it = iter_video_frames(vid_path)
         for fr in it:
             yield fr
             count += 1
@@ -106,11 +126,17 @@ def process_sample(
             dt_ms=cfg.dt_ms,
             backend=str(mp.get("backend", "hands")),  # type: ignore[arg-type]
             max_num_hands=int(mp.get("max_num_hands", 1)),
-            min_detection_confidence=float(mp.get("min_detection_confidence", 0.5)),
-            min_tracking_confidence=float(mp.get("min_tracking_confidence", 0.5)),
+            min_detection_confidence=float(
+                mp.get("min_detection_confidence", 0.5)
+            ),
+            min_tracking_confidence=float(
+                mp.get("min_tracking_confidence", 0.5)
+            ),
         )
         raw_pose = extract_pose_stream(_frame_iter(), cfg=pose_cfg)
-        t_reg, pos, vel, acc, lms, valid, meta = build_pose_tensor(raw_pose, dt_ms=cfg.dt_ms)
+        t_reg, pos, vel, acc, lms, valid, meta = build_pose_tensor(
+            raw_pose, dt_ms=cfg.dt_ms
+        )
         pose_valid = valid
         pose_meta = meta
         PoseTensor(
@@ -129,10 +155,16 @@ def process_sample(
             dt_ms=cfg.dt_ms,
             roi_size=cfg.roi_size,
             max_num_hands=int(mp.get("max_num_hands", 1)),
-            min_detection_confidence=float(mp.get("min_detection_confidence", 0.5)),
-            min_tracking_confidence=float(mp.get("min_tracking_confidence", 0.5)),
+            min_detection_confidence=float(
+                mp.get("min_detection_confidence", 0.5)
+            ),
+            min_tracking_confidence=float(
+                mp.get("min_tracking_confidence", 0.5)
+            ),
         )
-        t_reg, feats, valid, meta = extract_optflow_features_stream(_frame_iter(), cfg=flow_cfg)
+        t_reg, feats, valid, meta = extract_optflow_features_stream(
+            _frame_iter(), cfg=flow_cfg
+        )
         flow_valid = valid
         flow_meta = meta
         OptFlowFeatures(
@@ -148,7 +180,13 @@ def process_sample(
         ).to_npz(flow_path)
 
     if need_quality:
-        q = compute_quality(sample, pose_valid=pose_valid, flow_valid=flow_valid, pose_meta=pose_meta, flow_meta=flow_meta)
+        q = compute_quality(
+            sample,
+            pose_valid=pose_valid,
+            flow_valid=flow_valid,
+            pose_meta=pose_meta,
+            flow_meta=flow_meta,
+        )
         quality_path.write_text(json.dumps(q, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return _artifact_dict(pose_path, flow_path, quality_path)
@@ -168,6 +206,14 @@ def compute_quality(
         "split": sample.split,
         "label": sample.label,
     }
+    if sample.parent_video is not None:
+        out["parent_video"] = sample.parent_video
+    if sample.source_annotation is not None:
+        out["source_annotation"] = sample.source_annotation
+    if sample.frame_start is not None:
+        out["frame_start"] = int(sample.frame_start)
+    if sample.frame_end is not None:
+        out["frame_end"] = int(sample.frame_end)
     if pose_valid is not None:
         out["pose_valid_ratio"] = float(np.mean(pose_valid)) if pose_valid.size else 0.0
         out["pose_num_frames"] = int(pose_valid.size)
@@ -195,5 +241,6 @@ def _artifact_dict(pose_path: Path, flow_path: Path, quality_path: Path) -> dict
 def run_cmd(cmd: list[str]) -> None:
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
-        raise RuntimeError(f"Command failed ({r.returncode}): {' '.join(cmd)}\n{r.stderr}")
-
+        raise RuntimeError(
+            f"Command failed ({r.returncode}): {' '.join(cmd)}\n{r.stderr}"
+        )

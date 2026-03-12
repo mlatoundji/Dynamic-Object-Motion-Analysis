@@ -301,7 +301,7 @@ def main():
 
     parser.add_argument("--root-dir", type=Path, default=".")
 
-    parser.add_argument("--model", type=str, default="lstm_attention", help="Model type to train", 
+    parser.add_argument("--model", type=str, default="lstm_gated", help="Model type to train", 
                         choices=["default", 
                                  "attention",
                                  "lstm",
@@ -310,7 +310,7 @@ def main():
 
     parser.add_argument("--batch-size", type=int, default=32)
 
-    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--epochs", type=int, default=100)
 
     parser.add_argument("--lr", type=float, default=1e-4)
 

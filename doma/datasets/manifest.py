@@ -18,6 +18,10 @@ MANIFEST_FIELDS = [
     "video_path",
     "fps",
     "num_frames",
+    "frame_start",
+    "frame_end",
+    "parent_video",
+    "source_annotation",
     # artifact paths (resolved at write time)
     "pose_npz",
     "optflow_npz",
@@ -29,16 +33,19 @@ MANIFEST_FIELDS = [
 def write_manifest_csv(path: Path, rows: Iterable[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=MANIFEST_FIELDS, extrasaction="ignore")
+        w = csv.DictWriter(
+            f, fieldnames=MANIFEST_FIELDS, extrasaction="ignore"
+        )
         w.writeheader()
         for r in rows:
             w.writerow(r)
 
 
-def sample_to_row(sample: SampleIndex, artifacts: dict[str, str] | None = None) -> dict:
+def sample_to_row(
+    sample: SampleIndex, artifacts: dict[str, str] | None = None
+) -> dict:
     d = asdict(sample)
     d["text"] = d.pop("text", None)
     if artifacts:
         d.update(artifacts)
     return d
-

@@ -15,7 +15,7 @@ from .indexers.wlasl import index_wlasl
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Build unified dataset (pose tensors + optical-flow features)")
-    p.add_argument("--config", default="configs/datasets.yaml", help="Path to datasets config (.yaml/.toml/.json)")
+    p.add_argument("--config", default="config/datasets.yaml", help="Path to datasets config (.yaml/.toml/.json)")
     p.add_argument("--out", default="", help="Output processed root (defaults to config processed_root)")
     p.add_argument("--only", default="", help="Comma-separated dataset names to process (optional)")
     p.add_argument("--subset", type=int, default=0, help="Limit number of samples processed (debug)")

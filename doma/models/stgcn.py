@@ -3,6 +3,23 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
+<<<<<<< HEAD
+=======
+from dataclasses import dataclass
+from typing import Any, Optional
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    num_classes: int
+    num_keypoints: int = 21
+    temporal_length: int = 478
+    dropout: float = 0.5
+    ks: int = 1
+    kt: int = 3
+    channel_config: tuple = ((6, 64, 64), (64, 64, 128))
+
+>>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 
 class Align(nn.Module):
     def __init__(self, c_in, c_out):
@@ -98,6 +115,7 @@ class STBlock(nn.Module):
 #         return self.fc(x_t2)
 
 class STGCN(nn.Module):
+<<<<<<< HEAD
     def __init__(self, ks, kt, bs, T, n, Lk, p, num_classes):
         super(STGCN, self).__init__()
         self.st_conv1 = STBlock(ks, kt, n, bs[0], p, Lk)
@@ -115,4 +133,46 @@ class STGCN(nn.Module):
         x = self.pool(x).squeeze(-1).squeeze(-1) # (B, C)
         out = self.classifier(x) # (B, num_classes)
         return out
+=======
+    """
+    ST-GCN for skeleton + motion. Accepts batch= with "skeleton" (B,3,T,n) and "motion" (B,3,T,n),
+    or legacy forward(x) with x (B, 6, T, n).
+    """
+
+    def __init__(self, cfg: ModelConfig) -> None:
+        super().__init__()
+        self.cfg = cfg
+        n = int(cfg.num_keypoints)
+        Lk = torch.eye(n).unsqueeze(0)  # (1, n, n)
+        self.register_buffer("Lk", Lk)
+        bs = list(cfg.channel_config)
+        self.st_conv1 = STBlock(cfg.ks, cfg.kt, n, bs[0], cfg.dropout, self.Lk)
+        self.st_conv2 = STBlock(cfg.ks, cfg.kt, n, bs[1], cfg.dropout, self.Lk)
+        final_c = bs[1][2]
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Linear(final_c, cfg.num_classes)
+
+    def forward(
+        self,
+        x: Optional[torch.Tensor] = None,
+        *,
+        batch: Optional[dict[str, Any]] = None,
+    ) -> torch.Tensor:
+        if batch is not None:
+            sk = batch.get("skeleton")
+            mo = batch.get("motion")
+            if sk is not None and mo is not None:
+                x = torch.cat([sk, mo], dim=1)  # (B, 6, T, n)
+            else:
+                x = batch.get("x")
+        if x is None:
+            raise ValueError("STGCN requires x or batch with skeleton and motion (or x)")
+        # Guard: replace any remaining NaN/Inf so loss does not become NaN
+        if not torch.isfinite(x).all():
+            x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        x = self.st_conv1(x)
+        x = self.st_conv2(x)
+        x = self.pool(x).squeeze(-1).squeeze(-1)
+        return self.classifier(x)
+>>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 

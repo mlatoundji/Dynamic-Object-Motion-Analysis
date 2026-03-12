@@ -150,11 +150,11 @@ def extract_pose_holistic(
     try:
         import mediapipe as mp
     except Exception as e:  # pragma: no cover
-        raise RuntimeError("MediaPipe requires extras: poetry install -E hand") from e
+        raise RuntimeError("MediaPipe requires extras: uv sync --extra hand") from e
     if not hasattr(mp, "solutions"):
         raise RuntimeError(
             "This environment provides MediaPipe Tasks only (no `mediapipe.solutions`). "
-            "Set `processing.mediapipe.backend: hands` in `configs/datasets.yaml`, "
+            "Set `processing.mediapipe.backend: hands` in `config/datasets.yaml`, "
             "or install a MediaPipe build that includes `solutions`."
         )
 
@@ -278,7 +278,7 @@ def extract_pose_stream(
     if cfg.backend != "hands":
         raise RuntimeError(
             "Streaming extractor currently supports `backend: hands` only. "
-            "Set `processing.mediapipe.backend: hands` in `configs/datasets.yaml`."
+            "Set `processing.mediapipe.backend: hands` in `config/datasets.yaml`."
         )
 
     det = MediaPipeHandsDetector(
