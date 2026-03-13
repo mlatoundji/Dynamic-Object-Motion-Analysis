@@ -1,0 +1,16 @@
+{
+  "best_epoch": 73,
+  "best_metric_name": "accuracy",
+  "best_metric_value": 0.4472049689440994,
+  "best_metrics": {
+    "accuracy": 0.4472049689440994,
+    "precision_macro": 0.09778512867060185,
+    "recall_macro": 0.1370519070518144,
+    "f1_macro": 0.10777121582456783,
+    "precision_weighted": 0.3010348451109615,
+    "recall_weighted": 0.4472049689440994,
+    "f1_weighted": 0.3444657132433635,
+    "train_loss": 1.7241729465443534,
+    "val_loss": 1.7339894543523373
+  }
+}
