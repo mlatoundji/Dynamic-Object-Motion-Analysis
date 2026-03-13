@@ -238,7 +238,7 @@ L’historique de diagnostic et de propositions (logging, reset, benchmark) est 
 **Activation** (logging obligatoire) :
 
 ```bash
-uv run doma-live-classifier --run runs\classify_20260305-211230 --source 0 --log-dir doma\sessions --annotations
+uv run doma-live-classifier --model runs\classify_20260305-211230 --source 0 --log-dir doma\sessions --annotations
 ```
 
 **Code** : [doma/live_classifier.py](../doma/live_classifier.py)

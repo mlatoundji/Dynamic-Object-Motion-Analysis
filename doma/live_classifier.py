@@ -1165,7 +1165,7 @@ class LiveBuffer:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="PoC: live hand gesture classification (CNN-LSTM)")
-    p.add_argument("--run", required=True, help="Run directory (models/<run_id> from doma-train); cnn_lstm or temporal_transformer; must contain best.pt, norm.npz, label_map.json")
+    p.add_argument("--model", required=True, help="Run directory (models/<run_id> from doma-train); cnn_lstm or temporal_transformer; must contain best.pt, norm.npz, label_map.json")
     p.add_argument("--source", default="0", help="Camera index or video path")
     p.add_argument("--window-ms", type=float, default=1500.0)
     p.add_argument("--infer-every-ms", type=float, default=200.0)
@@ -1200,8 +1200,8 @@ def main(argv: list[str] | None = None) -> int:
     if torch is None:
         raise SystemExit("PyTorch is required. Install with: uv sync --extra train --extra hand")
 
-    ckpt_path, norm, label_to_idx, dt_ms = _load_bundle(Path(args.run))
-    run_dir = Path(args.run).resolve()
+    ckpt_path, norm, label_to_idx, dt_ms = _load_bundle(Path(args.model))
+    run_dir = Path(args.model).resolve()
     idx_to_label = {v: k for k, v in label_to_idx.items()}
     label_desc = _load_label_descriptions()
     labels_sorted = [lab for lab, _ in sorted(label_to_idx.items(), key=lambda kv: kv[1])]
@@ -1282,7 +1282,7 @@ def main(argv: list[str] | None = None) -> int:
             base_dir = (_repo_root() / base_dir).resolve()
         logger = _SessionLogger(
             out_dir=base_dir,
-            run_dir=Path(args.run).resolve(),
+            run_dir=Path(args.model).resolve(),
             args=args,
             labels_sorted=labels_sorted,
         )

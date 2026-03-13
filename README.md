@@ -85,41 +85,39 @@ uv sync --extra hand --extra dataset --extra train
 
 Définis dans `config/labels.py` (LABELS, LABEL_TO_TEXT, LABEL_TO_ID). Référence : [IPN Hand](https://gibranbenitez.github.io/IPN_Hand/), ICPR 2020.
 
-| Id | Label | Description |
-|----|-------|-------------|
-| 0 | D0X | Non-gesture |
-| 1 | B0A | Pointing with one finger |
-| 2 | B0B | Pointing with two fingers |
-| 3 | G01 | Click with one finger |
-| 4 | G02 | Click with two fingers |
-| 5 | G03 | Throw up |
-| 6 | G04 | Throw down |
-| 7 | G05 | Throw left |
-| 8 | G06 | Throw right |
-| 9 | G07 | Open twice |
-| 10 | G08 | Double click with one finger |
-| 11 | G09 | Double click with two fingers |
-| 12 | G10 | Zoom in |
-| 13 | G11 | Zoom out |
+
+| Id  | Label | Description                   |
+| --- | ----- | ----------------------------- |
+| 0   | D0X   | Non-gesture                   |
+| 1   | B0A   | Pointing with one finger      |
+| 2   | B0B   | Pointing with two fingers     |
+| 3   | G01   | Click with one finger         |
+| 4   | G02   | Click with two fingers        |
+| 5   | G03   | Throw up                      |
+| 6   | G04   | Throw down                    |
+| 7   | G05   | Throw left                    |
+| 8   | G06   | Throw right                   |
+| 9   | G07   | Open twice                    |
+| 10  | G08   | Double click with one finger  |
+| 11  | G09   | Double click with two fingers |
+| 12  | G10   | Zoom in                       |
+| 13  | G11   | Zoom out                      |
+
 
 ### Aperçu
 
-<p align="center">
-  <img src="docs/images/c1.gif" width="140" /> <img src="docs/images/c2.gif" width="140" /> <img src="docs/images/c3.gif" width="140" /> <img src="docs/images/c4.gif" width="140" /> <img src="docs/images/c5.gif" width="140" />
-</p>
-<p align="center">
-  <img src="docs/images/c6.gif" width="140" /> <img src="docs/images/c7.gif" width="140" /> <img src="docs/images/c8.gif" width="140" /> <img src="docs/images/c9.gif" width="140" /> <img src="docs/images/c10.gif" width="140" />
-</p>
-<p align="center">
-  <img src="docs/images/c11.gif" width="140" /> <img src="docs/images/c12.gif" width="140" /> <img src="docs/images/c13.gif" width="140" />
-</p>
+
+
+
+
+
 
 ### Sorties du pipeline
 
 Pour chaque sample :
 
-- **`pose.npz`** — Track 3D (position, vitesse, accélération), optionnel 21 landmarks main (MediaPipe).
-- **`optflow.npz`** — Métriques de flot (vitesse moyenne/max, direction dominante, concentration, seuil).
+- `**pose.npz`** — Track 3D (position, vitesse, accélération), optionnel 21 landmarks main (MediaPipe).
+- `**optflow.npz**` — Métriques de flot (vitesse moyenne/max, direction dominante, concentration, seuil).
 
 Le **manifest** (`data/processed/manifest.csv`) liste tous les samples : `sample_id`, `split`, `label`, `pose_npz`, `optflow_npz` (chemins relatifs à la racine).
 
@@ -135,17 +133,19 @@ uv run doma-build-dataset --config config/datasets.yaml --only ipn_hand --subset
 
 ## Entraînement
 
-Un seul script : **`doma-train`**. Le dataloader et le format de batch dépendent du modèle.
+Un seul script : `**doma-train**`. Le dataloader et le format de batch dépendent du modèle.
 
 **Modèles** : tous consomment le manifest ; la forme des entrées varie (pose+optflow unifiés, ou pose en skeleton/motion/track + optflow).
 
-| Modèle | Entrée |
-|--------|--------|
-| `temporal_transformer` | Séquence pose+optflow (vecteur unifié) |
-| `cnn_lstm` | Features unifiées pose+optflow |
-| `stgcn` | Pose en skeleton+motion |
-| `stgcn_opt` | Pose en skeleton/motion/track + optflow |
-| `temporal_vit` | Frames de flot (IPN flow) |
+
+| Modèle                 | Entrée                          |
+| ---------------------- | ------------------------------- |
+| `temporal_transformer` | Features pose+optflow           |
+| `cnn_lstm`             | Features pose+optflow           |
+| `stgcn`                | Features pose/centre de la main |
+| `stgcn_opt`            | Features pose+optflow           |
+| `temporal_vit`         | Frames de flot (IPN flow)       |
+
 
 **Exemples** :
 
@@ -166,12 +166,10 @@ uv run doma-train --model cnn_lstm --epochs 20 --batch-size 32 --output-dir mode
 Classification en temps réel (webcam ou vidéo) avec un run entraîné (recommandé : cnn_lstm ou temporal_transformer) :
 
 ```bash
-uv run doma-live-classifier --run models/<run_id> --source 0
+uv run doma-live-classifier --model models/cnn_lstm_20260307_211755
 ```
 
-<p align="center">
-  <img src="docs/images/demo.gif" alt="DOMA Live Classifier" width="560" />
-</p>
+
 
 - **q** : quitter — **r** : reset.
 
@@ -197,11 +195,13 @@ uv run python -m doma.tools.analyze_live_logs --csv doma/sessions/<session>/repo
 
 ## Documentation
 
-| Fichier | Contenu |
-|---------|---------|
-| `docs/DATASET_CREATION.md` | Création du dataset IPN Hand |
-| `docs/TRAINING_GUIDE.md` | Dataloaders, modèles, entraînement |
-| `config/labels.py` | LABELS, LABEL_TO_TEXT, LABEL_TO_ID |
+
+| Fichier                    | Contenu                            |
+| -------------------------- | ---------------------------------- |
+| `docs/DATASET_CREATION.md` | Création du dataset IPN Hand       |
+| `docs/TRAINING_GUIDE.md`   | Dataloaders, modèles, entraînement |
+| `config/labels.py`         | LABELS, LABEL_TO_TEXT, LABEL_TO_ID |
+
 
 ---
 
