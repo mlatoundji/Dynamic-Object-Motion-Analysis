@@ -266,10 +266,6 @@ En résumé, pour ce pipeline et ce split, les modèles basés sur la séquence 
 
 Le projet DOMA fournit un pipeline complet pour la reconnaissance de gestes de la main à partir de vidéos : détection de la main (MediaPipe/YOLO), flot optique (Farnebäck/RAFT), extraction de métriques (magnitude, direction dominante, concentration) et de pose (track 3D, landmarks), puis classification par plusieurs modèles (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt, Temporal ViT). Les formules de représentation (moyenne circulaire, pooling masqué, blocs ST-GCN) ont été rappelées et les performances sur IPN Hand comparées en tableaux. Les meilleurs résultats sont obtenus avec CNN-LSTM et Temporal Transformer sur les features pose+optflow unifiées ; les architectures à graphe pourraient être améliorées par un graphe spatial plus riche et un réglage dédié.
 
-%==============================================================================
-\section*{Références}
-%==============================================================================
-
 \begin{thebibliography}{9}
 
 \bibitem{ipnhand}
