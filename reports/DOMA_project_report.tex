@@ -151,7 +151,7 @@ Deux ST-Blocks sont empilés, suivis d’un \textbf{pooling global} (moyenne sur
 Ce modèle fusionne trois branches à partir des mêmes données pose + optflow :
 \begin{enumerate}
   \item \textbf{Branche ST-GCN} : comme ci-dessus, sur skeleton+motion $\to$ vecteur $\mathbf{h}_{\mathrm{stgcn}}$.
-  \item \textbf{Branche track} : séquence track (pos, vel, acc) de dimension 9 par frame ; CNN 1D temporelle (Conv1D + BN + ReLU + Dropout) ou LSTM + pooling global $\to$ $\mathbf{h}_{\mathrm{track}}$.
+  \item \textbf{Branche pose} : séquence pose (pos, vel, acc) de dimension 9 par frame ; CNN 1D temporelle (Conv1D + BN + ReLU + Dropout) ou LSTM + pooling global $\to$ $\mathbf{h}_{\mathrm{track}}$.
   \item \textbf{Branche optflow} : séquence des 6 métriques de flot par frame ; même structure CNN 1D ou LSTM $\to$ $\mathbf{h}_{\mathrm{opt}}$.
 \end{enumerate}
 
