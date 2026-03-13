@@ -55,14 +55,9 @@ vit = [
 
 [project.scripts]
 doma-live = "doma.cli:main"
-<<<<<<< HEAD
-doma-train = "doma.modeling.train:main"
-=======
 doma-build-dataset = "doma.datasets.cli:main"
 doma-train = "doma.modeling.train:main"
 doma-live-classifier = "doma.live_classifier:main"
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
-
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

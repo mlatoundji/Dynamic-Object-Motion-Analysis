@@ -17,7 +17,7 @@
 \maketitle
 
 \begin{abstract}
-Ce rapport décrit le pipeline \emph{Dynamic Object Motion Analysis} (DOMA) pour la reconnaissance de gestes de la main à partir de vidéos. Le système combine détection de la main (MediaPipe / YOLO), extraction de flot optique (Farnebäck / RAFT), et plusieurs modèles de classification séquence$\to$classe entraînés sur le jeu IPN Hand. Nous décrivons les méthodes (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt, Temporal ViT), les formules de représentation des entrées (pose, métriques de flot), et nous comparons les performances sur l’ensemble de validation (exactitude, F1 macro/pondéré, perte). Les meilleurs résultats sont obtenus avec CNN-LSTM et Temporal Transformer sur les features unifiées pose+optflow ; le Temporal ViT, entraîné sur des images de flot (entrée différente), atteint environ 73\,\% d'exactitude.
+Ce rapport décrit le pipeline \emph{Dynamic Object Motion Analysis} (DOMA) pour la reconnaissance de gestes de la main à partir de vidéos. Le système combine détection de la main (MediaPipe / YOLO), extraction de flot optique (Farnebäck / RAFT), et plusieurs modèles de classification séquence$\to$classe entraînés sur le jeu IPN Hand. Nous décrivons les méthodes (CNN-LSTM, Temporal Transformer, ST-GCN, ST-GCN-Opt, Temporal ViT), les formules de représentation des entrées — \emph{pose} (track 3D du centre de la main et des landmarks) et \emph{optflow} (features de flot optique) — puis nous comparons les performances sur l’ensemble de validation (exactitude, F1 macro/pondéré, perte). Les meilleurs résultats sont obtenus avec CNN-LSTM et Temporal Transformer sur les features unifiées pose+optflow ; le Temporal ViT, entraîné sur des images de flot (entrée différente), atteint environ 73\,\% d'exactitude.
 \end{abstract}
 
 \tableofcontents
@@ -31,8 +31,8 @@ La reconnaissance continue de gestes de la main (HGR) à partir de vidéos est u
 
 \begin{itemize}
   \item restreindre l’analyse du mouvement à une région d’intérêt (ROI) définie par la détection de main (ROI manuelle, MediaPipe Hands ou YOLO) ;
-  \item calculer le flot optique dense dans cette ROI et en extraire des \emph{métriques} (vitesse, direction dominante, concentration) ;
-  \item combiner ces métriques avec des descripteurs de \emph{pose} (position, vitesse, accélération du track 3D, optionnellement 21 landmarks) en un vecteur de features par frame ;
+  \item calculer le flot optique dense dans cette ROI et en extraire des \emph{features de flot optique} (que nous noterons \emph{optflow}) ;
+  \item combiner ces features avec des descripteurs de \emph{pose} (track 3D du centre de la main et des 21 landmarks) en un vecteur de features par frame ;
   \item entraîner des classificateurs séquence$\to$classe sur le benchmark IPN Hand et comparer plusieurs architectures.
 \end{itemize}
 
@@ -45,14 +45,14 @@ Le rapport est structuré comme suit : Section~\ref{sec:data} présente le jeu d
 
 Le dataset \textbf{IPN Hand}~\cite{ipnhand} est un benchmark vidéo pour la reconnaissance continue de gestes de la main : plus de 4\,000 séquences de gestes, 800\,000 frames, 50 sujets, résolution 640$\times$480 à 30\,fps. Il comporte \textbf{14 classes} : une classe \emph{non-geste} (D0X) et 13 gestes (B0A, B0B, G01--G11) conçus pour l’interaction avec des écrans sans contact (pointing, click, throw, zoom, etc.).
 
-Chaque sample est un segment vidéo annoté avec un label. Le pipeline DOMA produit, pour chaque sample, deux fichiers NPZ à partir des vidéos et annotations :
+Chaque sample est un segment vidéo annoté avec un label. Après traitement, le pipeline DOMA associe à chaque sample deux fichiers NPZ :
 
 \begin{itemize}
-  \item \textbf{Pose / cinématique} (\texttt{pose\_*.npz}) : position, vitesse et accélération du track 3D (\texttt{track\_pos\_xyz}, \texttt{track\_vel\_xyz}, \texttt{track\_acc\_xyz}), et optionnellement les 21 landmarks main (\texttt{landmarks\_xyz}) fournis par MediaPipe.
-  \item \textbf{Flot optique} (\texttt{optflow\_*.npz}) : métriques temporelles par frame (vitesse moyenne, vitesse max, angle dominant, concentration de direction, nombre de pixels du masque, seuil).
+  \item \textbf{Pose} (\texttt{pose\_*.npz}) : contient la pose au fil du temps (track 3D du centre de la main et, si disponibles, des 21 landmarks). La définition détaillée de ces signaux est donnée en Section~\ref{sec:pipeline} (\emph{Représentation pose}).
+  \item \textbf{Optflow} (\texttt{optflow\_*.npz}) : contient les features de flot optique agrégées par frame. Leur construction (magnitude, direction dominante, concentration, etc.) est décrite en Section~\ref{sec:pipeline} (\emph{Flot optique et métriques}).
 \end{itemize}
 
-Un fichier \textbf{manifest} (\texttt{manifest.csv}) regroupe tous les samples avec les colonnes \texttt{sample\_id}, \texttt{split}, \texttt{label}, \texttt{pose\_npz}, \texttt{optflow\_npz}. Les modèles sont entraînés en utilisant soit un vecteur unifié pose+optflow par pas de temps, soit des représentations dérivées (skeleton+motion, track) pour les architectures à graphe ou multi-branches.
+Un fichier \textbf{manifest} (\texttt{manifest.csv}) regroupe tous les samples avec les colonnes \texttt{sample\_id}, \texttt{split}, \texttt{label}, \texttt{pose\_npz}, \texttt{optflow\_npz}.
 
 %==============================================================================
 \section{Pipeline d’extraction des features}
@@ -79,13 +79,13 @@ Sur les pixels du masque, on définit les métriques suivantes, stockées dans \
 
 \subsection{Représentation pose}
 
-À chaque frame $t$, la pose est représentée par :
+Dans tout le rapport, nous appelons \emph{pose} l’ensemble des signaux issus du track 3D du centre de la main et du track 3D des landmarks (lorsqu’ils sont présents). À chaque frame $t$, cela se concrétise par :
 \begin{itemize}
-  \item \textbf{Track 3D} : position $\mathbf{p}_t$, vitesse $\mathbf{v}_t$, accélération $\mathbf{a}_t$ (9D par frame). Utilisé dans le vecteur unifié (CNN-LSTM, Temporal Transformer) et comme branche dédiée dans ST-GCN-Opt.
-  \item \textbf{Landmarks et skeleton + motion} : les 21 landmarks $\mathbf{L}_t \in \mathbb{R}^{21 \times 3}$ sont, lorsqu'ils sont disponibles, inclus dans le vecteur unifié par frame (CNN-LSTM, Temporal Transformer), d'où $F=78$. Ils servent aussi à construire la représentation skeleton+motion pour ST-GCN et la branche ST-GCN de ST-GCN-Opt (tenseur $3 \times T \times 21$, motion $\mathbf{M}_t = \mathbf{L}_t - \mathbf{L}_{t-1}$) ; en l’absence de landmarks, un seul nœud à partir du track ($n=1$).
+  \item \textbf{Track 3D du centre de la main} : les coordonnées, vitesses et accélérations du centre de la main regroupées en un vecteur 9D par frame. Utilisé dans le vecteur unifié (CNN-LSTM, Temporal Transformer) et comme branche dédiée dans ST-GCN-Opt.
+  \item \textbf{Track 3D des landmarks} : les 21 landmarks $\mathbf{L}_t \in \mathbb{R}^{21 \times 3}$ sont (i) inclus dans le vecteur unifié par frame (CNN-LSTM, Temporal Transformer), d'où $F=78$, et (ii) utilisés comme track 3D pour ST-GCN et la branche ST-GCN de ST-GCN-Opt, avec un tenseur $3 \times T \times 21$ pour les positions et un tenseur $3 \times T \times 21$ pour les vitesses (différences temporelles $\mathbf{L}_t - \mathbf{L}_{t-1}$). En l’absence de landmarks, un seul nœud dérivé du track ($n=1$) est utilisé.
 \end{itemize}
 
-Les entrées des modèles sont donc toutes dérivées des deux sources \textbf{pose} et \textbf{optflow} ; selon l’architecture, on utilise soit un vecteur concaténé par frame (Temporal Transformer, CNN-LSTM), soit skeleton+motion et/ou track+optflow (ST-GCN, ST-GCN-Opt), soit des images de flot par frame (Temporal ViT, pipeline ipn\_flow).
+Les entrées des modèles sont donc toutes dérivées des deux sources \textbf{pose} et/ou \textbf{optflow} ; selon l’architecture, on utilise soit un vecteur concaténé par frame (Temporal Transformer, CNN-LSTM, ST-GCN, ST-GCN-Opt), soit des images de flot par frame (Temporal ViT, pipeline ipn\_flow).
 
 %==============================================================================
 \section{Méthodes (modèles)}
@@ -163,7 +163,7 @@ La fusion peut être \emph{concaténation}, \emph{pondérée} (poids appris + so
   \label{tab:main}
   \begin{tabular}{lccc}
     \toprule
-    Configuration  & Track          & Optical flow   & Type de fusion \\
+    Configuration  & Pose          & Optical flow   & Type de fusion \\
     \midrule
     default        & CNN 1D         & CNN 1D         & CONCAT         \\
     attention      & CNN 1D         & CNN 1D         & ATTENTION      \\
@@ -196,7 +196,7 @@ Contrairement aux autres modèles de cette section, le Temporal ViT est entraîn
 
 \begin{itemize}
   \item \textbf{Données} : manifest IPN Hand, split train/val/test ; les métriques rapportées sont sur l’ensemble de \textbf{validation} (best epoch selon l’exactitude sur la validation).
-  \item \textbf{Entraînement} : 20 epochs, AdamW (lr $5\times10^{-4}$, weight decay 0.01), CosineAnnealingLR, batch size 32, gradient clipping (max norm 1). Une seule graine utilisée pour les runs rapportés. \emph{Note} : Temporal ViT a été entraîné avec batch size 8 et lr $10^{-4}$ (dataset ipn\_flow).
+  \item \textbf{Entraînement} : 20 epochs (100 pour ST-GCN-Opt), AdamW (lr $5\times10^{-4}$, weight decay 0.01), CosineAnnealingLR, batch size 32, gradient clipping (max norm 1). Une seule graine utilisée pour les runs rapportés. \emph{Note} : Temporal ViT a été entraîné avec batch size 8 et lr $10^{-4}$ (dataset ipn\_flow).
   \item \textbf{Métriques} : exactitude (accuracy), précision/rappel/F1 en macro et pondéré (weighted).
 \end{itemize}
 
@@ -214,8 +214,8 @@ Les tableaux suivants résument les \textbf{meilleures métriques} (best epoch) 
     \midrule
     CNN-LSTM           & 0.883 & 0.817 & 0.836 & 0.823 & 0.884 & 0.595 \\
     Temporal Transformer & 0.850 & 0.742 & 0.764 & 0.748 & 0.850 & 0.610 \\
+    ST-GCN-Opt         & 0.798 & 0.678 & 0.627 & 0.640 & 0.796 & 0.756 \\
     Temporal ViT\textsuperscript{1} & 0.728 & 0.611 & 0.602 & 0.592 & 0.723 & 1.06 \\
-    ST-GCN-Opt         & 0.665 & 0.465 & 0.300 & 0.311 & 0.597 & 1.365 \\
     ST-GCN             & 0.538 & 0.246 & 0.226 & 0.196 & 0.458 & 1.549 \\
     \bottomrule
   \end{tabular}
@@ -233,8 +233,8 @@ Les tableaux suivants résument les \textbf{meilleures métriques} (best epoch) 
     \midrule
     CNN-LSTM            & 0.0629 & 20 \\
     Temporal Transformer & 0.3464 & 18 \\
+    ST-GCN-Opt          & 0.382 & 100 \\
     Temporal ViT         & 0.218  & 7 \\
-    ST-GCN-Opt          & 0.8283 & 17 \\
     ST-GCN              & 1.6031 & 20 \\
     \bottomrule
   \end{tabular}
@@ -253,8 +253,8 @@ Les tableaux suivants résument les \textbf{meilleures métriques} (best epoch) 
   \item \textbf{CNN-LSTM} et \textbf{Temporal Transformer} obtiennent les meilleures performances (exactitude $\approx$ 85--88\%, F1 macro $\approx$ 0.75--0.82), en utilisant directement le vecteur unifié pose+optflow par frame. La représentation séquentielle standard convient bien au jeu IPN Hand avec les features extraites.
   \item \textbf{Pourquoi CNN-LSTM dépasse le Temporal Transformer} (accuracy 88,3\% vs 85,0\%, F1 macro 0,82 vs 0,75) : (1)~la convolution 1D et la récurrence LSTM introduisent un biais d'induction fort pour les motifs temporels \emph{locaux} (phases successives d'un geste), ce qui peut mieux généraliser avec peu de données ; (2)~le Transformer repose sur l'attention globale et a généralement besoin de plus de données ou d'une régularisation plus forte pour éviter le surapprentissage ; (3)~la perte d'entraînement à la meilleure epoch est nettement plus basse pour CNN-LSTM (0,063 vs 0,346), ce qui suggère un meilleur ajustement sans dégradation de la validation. Les deux modèles gèrent les séquences de longueur variable de la même façon (T fixe par batch, masque de padding). En résumé, pour la taille actuelle du jeu IPN Hand et les features utilisées, l'architecture CNN-LSTM offre un meilleur compromis capacité / régularisation que le Temporal Transformer.
   \item \textbf{Temporal ViT} (entrée : images de flot, ipn\_flow) atteint environ 72,8\,\% d'exactitude et 0,59 de F1 macro dans notre run (best epoch 7). Les performances ne sont pas directement comparables aux modèles pose+optflow car l'entrée et le pipeline de données diffèrent ; le modèle pourrait bénéficier d'un pré-entraînement ou d'un réglage dédié.
-  \item \textbf{ST-GCN-Opt} est en retrait (accuracy $\approx$ 66.5\%, F1 macro $\approx$ 0.31), avec une forte variance sur les classes de gestes (bon rappel sur D0X/B0A/B0B, rappel faible sur plusieurs G0x). La fusion multi-branches et le format skeleton/track/optflow pourraient nécessiter un réglage (learning rate, régularisation, ou plus de données) pour converger mieux.
-  \item \textbf{ST-GCN} seul atteint seulement $\approx$ 53.8\% d’exactitude (F1 macro $\approx$ 0.20), avec de nombreux rappels à zéro sur les gestes G04--G06, G10, G11. L’utilisation du graphe skeleton+motion sans les branches track/optflow et avec un graphe trivial ($\mathbf{A}=\mathbf{I}$) limite probablement la capacité du modèle sur ce dataset.
+  \item \textbf{ST-GCN-Opt} atteint désormais une accuracy d’environ 80\% et une F1 macro $\approx$ 0.64 sur la validation (nouveau run, 100 epochs), ce qui le rapproche des performances de CNN-LSTM et Temporal Transformer tout en exploitant une architecture multi-branches (track centre, landmarks, optflow). Il reste toutefois un léger écart en F1 macro et en stabilité par classe, ce qui suggère qu’un réglage plus fin (learning rate, régularisation, pondération des branches) pourrait encore améliorer la convergence.
+  \item \textbf{ST-GCN} seul atteint seulement $\approx$ 53.8\% d’exactitude (F1 macro $\approx$ 0.20), avec de nombreux rappels à zéro sur les gestes G04--G06, G10, G11. L’utilisation du graphe pose/centre sans les branches pose/landmarks+optflow et avec un graphe trivial ($\mathbf{A}=\mathbf{I}$) limite probablement la capacité du modèle sur ce dataset.
 \end{itemize}
 
 En résumé, pour ce pipeline et ce split, les modèles basés sur la séquence de features unifiées (CNN-LSTM, Temporal Transformer) surpassent les modèles à graphe spatio-temporel (ST-GCN, ST-GCN-Opt) dans la configuration actuelle.
@@ -270,12 +270,33 @@ Le projet DOMA fournit un pipeline complet pour la reconnaissance de gestes de l
 \section*{Références}
 %==============================================================================
 
-\begin{enumerate}
-  \item \label{ipnhand} G. Benitez-Garcia et al., ``IPN Hand: A Video Dataset and Benchmark for Real-Time Continuous Hand Gesture Recognition,'' in \textit{ICPR}, 2020.
-  \item G. Farnebäck, ``Two-frame motion estimation based on polynomial expansion,'' in \textit{Scandinavian Conference on Image Analysis}, 2003.
-  \item Y. Yan, S. Xiong, et D. Lin, ``Spatial temporal graph convolutional networks for skeleton-based action recognition,'' in \textit{AAAI}, 2018.
-  \item A. Vaswani et al., ``Attention is all you need,'' in \textit{NeurIPS}, 2017.
-  \item A. Dosovitskiy et al., ``An image is worth 16x16 words: Transformers for image recognition at scale,'' in \textit{ICLR}, 2021.
-\end{enumerate}
+\begin{thebibliography}{9}
+
+\bibitem{ipnhand}
+G.~Benitez-Garcia et al.,
+``IPN Hand: A Video Dataset and Benchmark for Real-Time Continuous Hand Gesture Recognition,''
+in \textit{ICPR}, 2020.
+
+\bibitem{farneback}
+G.~Farnebäck,
+``Two-frame motion estimation based on polynomial expansion,''
+in \textit{Scandinavian Conference on Image Analysis}, 2003.
+
+\bibitem{stgcn}
+Y.~Yan, S.~Xiong, and D.~Lin,
+``Spatial temporal graph convolutional networks for skeleton-based action recognition,''
+in \textit{AAAI}, 2018.
+
+\bibitem{transformer}
+A.~Vaswani et al.,
+``Attention is all you need,''
+in \textit{NeurIPS}, 2017.
+
+\bibitem{vit}
+A.~Dosovitskiy et al.,
+``An image is worth 16x16 words: Transformers for image recognition at scale,''
+in \textit{ICLR}, 2021.
+
+\end{thebibliography}
 
 \end{document}
