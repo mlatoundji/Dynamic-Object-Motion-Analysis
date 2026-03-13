@@ -4,7 +4,8 @@ version = "0.1.0"
 description = ""
 authors = [
     {name = "MMyster", email = "mouradlatoundji@gmail.com"},
-    {name = "Chengbo Zhang", email = "chengbozhang.cbz@gmail.com"}
+    {name = "Chengbo Zhang", email = "chengbozhang.cbz@gmail.com"},
+    {name = "Le Hoang", email = "lehoangnguyen510@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
@@ -54,9 +55,13 @@ vit = [
 
 [project.scripts]
 doma-live = "doma.cli:main"
+<<<<<<< HEAD
+doma-train = "doma.modeling.train:main"
+=======
 doma-build-dataset = "doma.datasets.cli:main"
 doma-train = "doma.modeling.train:main"
 doma-live-classifier = "doma.live_classifier:main"
+>>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 
 
 [build-system]

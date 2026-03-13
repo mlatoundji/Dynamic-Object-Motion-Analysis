@@ -151,11 +151,28 @@ Deux ST-Blocks sont empilés, suivis d’un \textbf{pooling global} (moyenne sur
 Ce modèle fusionne trois branches à partir des mêmes données pose + optflow :
 \begin{enumerate}
   \item \textbf{Branche ST-GCN} : comme ci-dessus, sur skeleton+motion $\to$ vecteur $\mathbf{h}_{\mathrm{stgcn}}$.
-  \item \textbf{Branche track} : séquence track (pos, vel, acc) de dimension 9 par frame ; CNN 1D temporelle (Conv1D + BN + ReLU + Dropout) + pooling global $\to$ $\mathbf{h}_{\mathrm{track}}$.
-  \item \textbf{Branche optflow} : séquence des 6 métriques de flot par frame ; même structure CNN 1D $\to$ $\mathbf{h}_{\mathrm{opt}}$.
+  \item \textbf{Branche track} : séquence track (pos, vel, acc) de dimension 9 par frame ; CNN 1D temporelle (Conv1D + BN + ReLU + Dropout) ou LSTM + pooling global $\to$ $\mathbf{h}_{\mathrm{track}}$.
+  \item \textbf{Branche optflow} : séquence des 6 métriques de flot par frame ; même structure CNN 1D ou LSTM $\to$ $\mathbf{h}_{\mathrm{opt}}$.
 \end{enumerate}
 
 La fusion peut être \emph{concaténation}, \emph{pondérée} (poids appris + softmax), \emph{attention} (projection commune + multi-head attention) ou \emph{gated}. Les vecteurs fusionnés sont passés dans un MLP (Linear$\to$BN$\to$ReLU$\to$Dropout, répété) puis Linear $\to$ logits $K$.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Configurations de fusion et types de traitement des branches dans ST-GCN-Opt}
+  \label{tab:main}
+  \begin{tabular}{lccc}
+    \toprule
+    Configuration  & Track          & Optical flow   & Type de fusion \\
+    \midrule
+    default        & CNN 1D         & CNN 1D         & CONCAT         \\
+    attention      & CNN 1D         & CNN 1D         & ATTENTION      \\
+    lstm\_default  & LSTM           & LSTM           & WEIGHTED       \\
+    lstm\_attention & LSTM           & LSTM           & ATTENTION      \\
+    lstm\_gated    & LSTM           & LSTM           & GATED          \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsection{Temporal ViT (Vision Transformer temporel)}
 

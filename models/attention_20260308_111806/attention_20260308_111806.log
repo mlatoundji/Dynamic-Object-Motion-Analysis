@@ -1,0 +1,127 @@
+Run ID: attention_20260308_111806
+Device: cuda
+train_loss=2.2408 val_loss=2.1635 acc=0.3863 f1=0.0884
+Saved best checkpoint
+train_loss=1.8992 val_loss=2.3108 acc=0.4217 f1=0.0973
+Saved best checkpoint
+train_loss=1.7942 val_loss=2.8175 acc=0.4398 f1=0.1087
+Saved best checkpoint
+train_loss=1.6943 val_loss=2.7526 acc=0.4342 f1=0.1023
+train_loss=1.6366 val_loss=2.1794 acc=0.4590 f1=0.1047
+Saved best checkpoint
+train_loss=1.5905 val_loss=2.2745 acc=0.4491 f1=0.1173
+train_loss=1.5713 val_loss=2.1742 acc=0.4342 f1=0.1070
+train_loss=1.5320 val_loss=1.8887 acc=0.4385 f1=0.1270
+train_loss=1.5041 val_loss=1.9474 acc=0.4360 f1=0.1174
+train_loss=1.5021 val_loss=1.7130 acc=0.4429 f1=0.1335
+train_loss=1.4930 val_loss=1.9093 acc=0.4466 f1=0.1356
+train_loss=1.4792 val_loss=1.8300 acc=0.4553 f1=0.1434
+train_loss=1.4441 val_loss=1.9875 acc=0.4516 f1=0.1394
+train_loss=1.4384 val_loss=1.7996 acc=0.4559 f1=0.1346
+train_loss=1.4335 val_loss=1.7405 acc=0.4447 f1=0.1398
+train_loss=1.4173 val_loss=1.9201 acc=0.4522 f1=0.1284
+train_loss=1.4192 val_loss=1.8375 acc=0.4621 f1=0.1556
+Saved best checkpoint
+train_loss=1.4073 val_loss=1.7344 acc=0.4180 f1=0.1533
+train_loss=1.3864 val_loss=1.7836 acc=0.4373 f1=0.1618
+train_loss=1.3846 val_loss=2.1590 acc=0.4758 f1=0.1435
+Saved best checkpoint
+train_loss=1.3690 val_loss=1.7212 acc=0.4602 f1=0.1765
+train_loss=1.3592 val_loss=1.8549 acc=0.4745 f1=0.1714
+train_loss=1.3548 val_loss=1.8517 acc=0.4870 f1=0.1644
+Saved best checkpoint
+train_loss=1.3432 val_loss=1.7657 acc=0.4708 f1=0.1826
+train_loss=1.3268 val_loss=1.6703 acc=0.4807 f1=0.1800
+train_loss=1.2939 val_loss=1.7999 acc=0.4907 f1=0.1692
+Saved best checkpoint
+train_loss=1.3130 val_loss=1.8992 acc=0.4776 f1=0.1639
+train_loss=1.2903 val_loss=1.8588 acc=0.5025 f1=0.1826
+Saved best checkpoint
+train_loss=1.2792 val_loss=1.6990 acc=0.4789 f1=0.1998
+train_loss=1.2683 val_loss=1.7319 acc=0.4963 f1=0.1867
+train_loss=1.2600 val_loss=1.7531 acc=0.4969 f1=0.1869
+train_loss=1.2549 val_loss=1.9379 acc=0.4963 f1=0.1736
+train_loss=1.2493 val_loss=1.7235 acc=0.5130 f1=0.1983
+Saved best checkpoint
+train_loss=1.2504 val_loss=1.7005 acc=0.4994 f1=0.2078
+train_loss=1.2329 val_loss=1.5596 acc=0.5093 f1=0.2285
+train_loss=1.1982 val_loss=1.7983 acc=0.5261 f1=0.1820
+Saved best checkpoint
+train_loss=1.1993 val_loss=1.6759 acc=0.5180 f1=0.2167
+train_loss=1.1660 val_loss=1.6877 acc=0.5410 f1=0.2259
+Saved best checkpoint
+train_loss=1.1233 val_loss=1.4811 acc=0.6000 f1=0.2845
+Saved best checkpoint
+train_loss=1.0877 val_loss=1.5745 acc=0.5870 f1=0.2640
+train_loss=1.0130 val_loss=1.4950 acc=0.6261 f1=0.2814
+Saved best checkpoint
+train_loss=0.9914 val_loss=1.4348 acc=0.6391 f1=0.2733
+Saved best checkpoint
+train_loss=0.9601 val_loss=1.5074 acc=0.6180 f1=0.2523
+train_loss=0.9410 val_loss=1.4733 acc=0.6385 f1=0.2671
+train_loss=0.8973 val_loss=1.4601 acc=0.6516 f1=0.2772
+Saved best checkpoint
+train_loss=0.8958 val_loss=1.5503 acc=0.6248 f1=0.2473
+train_loss=0.8776 val_loss=1.3956 acc=0.6491 f1=0.2939
+train_loss=0.8445 val_loss=1.2287 acc=0.6509 f1=0.3379
+train_loss=0.8266 val_loss=1.2966 acc=0.6435 f1=0.3273
+train_loss=0.8066 val_loss=1.4005 acc=0.6373 f1=0.2980
+train_loss=0.7927 val_loss=1.0932 acc=0.6839 f1=0.3724
+Saved best checkpoint
+train_loss=0.7799 val_loss=1.1953 acc=0.6671 f1=0.3234
+train_loss=0.7802 val_loss=1.2145 acc=0.6547 f1=0.3533
+train_loss=0.7753 val_loss=1.1027 acc=0.6733 f1=0.3723
+train_loss=0.7546 val_loss=1.0914 acc=0.6857 f1=0.3873
+Saved best checkpoint
+train_loss=0.7413 val_loss=1.1765 acc=0.6814 f1=0.3772
+train_loss=0.7403 val_loss=1.1978 acc=0.6727 f1=0.3588
+train_loss=0.7209 val_loss=1.1869 acc=0.6596 f1=0.3288
+train_loss=0.7224 val_loss=1.1276 acc=0.6720 f1=0.4013
+train_loss=0.7095 val_loss=1.1081 acc=0.6901 f1=0.3767
+Saved best checkpoint
+train_loss=0.6782 val_loss=1.1486 acc=0.6882 f1=0.3777
+train_loss=0.6635 val_loss=1.1009 acc=0.6963 f1=0.3962
+Saved best checkpoint
+train_loss=0.6681 val_loss=1.0118 acc=0.7012 f1=0.4387
+Saved best checkpoint
+train_loss=0.6499 val_loss=1.0802 acc=0.6876 f1=0.3899
+train_loss=0.6440 val_loss=1.1883 acc=0.6615 f1=0.3443
+train_loss=0.6436 val_loss=1.0718 acc=0.7106 f1=0.4548
+Saved best checkpoint
+train_loss=0.6450 val_loss=1.1684 acc=0.6832 f1=0.3973
+train_loss=0.6274 val_loss=1.1789 acc=0.6820 f1=0.3868
+train_loss=0.6249 val_loss=1.0698 acc=0.6882 f1=0.3978
+train_loss=0.6208 val_loss=0.9856 acc=0.7199 f1=0.4574
+Saved best checkpoint
+train_loss=0.5996 val_loss=1.0924 acc=0.6870 f1=0.4104
+train_loss=0.6106 val_loss=1.0205 acc=0.7161 f1=0.4709
+train_loss=0.5886 val_loss=1.0146 acc=0.7161 f1=0.4638
+train_loss=0.5930 val_loss=1.1005 acc=0.7019 f1=0.4373
+train_loss=0.5793 val_loss=1.0802 acc=0.7025 f1=0.4126
+train_loss=0.5885 val_loss=1.2183 acc=0.6925 f1=0.3970
+train_loss=0.5949 val_loss=1.0105 acc=0.7087 f1=0.4533
+train_loss=0.5803 val_loss=1.0484 acc=0.7155 f1=0.4509
+train_loss=0.5516 val_loss=1.0917 acc=0.7019 f1=0.4260
+train_loss=0.5565 val_loss=1.0189 acc=0.7006 f1=0.4373
+train_loss=0.5654 val_loss=1.1839 acc=0.6938 f1=0.4029
+train_loss=0.5460 val_loss=1.0484 acc=0.7093 f1=0.4625
+train_loss=0.5604 val_loss=1.1383 acc=0.6727 f1=0.3925
+train_loss=0.5598 val_loss=1.1049 acc=0.6925 f1=0.4193
+train_loss=0.5385 val_loss=1.0854 acc=0.6758 f1=0.4265
+train_loss=0.5471 val_loss=0.9840 acc=0.7118 f1=0.4837
+train_loss=0.5417 val_loss=0.9946 acc=0.7317 f1=0.5025
+Saved best checkpoint
+train_loss=0.5295 val_loss=1.0767 acc=0.7037 f1=0.4395
+train_loss=0.4953 val_loss=1.0222 acc=0.7087 f1=0.4383
+train_loss=0.5087 val_loss=1.0473 acc=0.7037 f1=0.4156
+train_loss=0.5126 val_loss=0.9875 acc=0.7186 f1=0.4477
+train_loss=0.5184 val_loss=1.1425 acc=0.6969 f1=0.4106
+train_loss=0.5098 val_loss=0.9569 acc=0.7298 f1=0.4772
+train_loss=0.5193 val_loss=1.0753 acc=0.7087 f1=0.4571
+train_loss=0.4901 val_loss=0.9999 acc=0.7180 f1=0.4638
+train_loss=0.5006 val_loss=0.9754 acc=0.7329 f1=0.5083
+Saved best checkpoint
+train_loss=0.4898 val_loss=1.0320 acc=0.7106 f1=0.4626
+train_loss=0.4841 val_loss=1.2642 acc=0.6907 f1=0.4044
+train_loss=0.4739 val_loss=1.1128 acc=0.6845 f1=0.4203
+train_loss=0.4721 val_loss=1.1256 acc=0.6857 f1=0.4105
