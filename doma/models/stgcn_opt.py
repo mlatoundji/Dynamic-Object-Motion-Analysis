@@ -2,18 +2,12 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-<<<<<<< HEAD
-from typing import Dict, Tuple, Optional, Union
-=======
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, Union
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 from enum import Enum
 from doma.models.stgcn import STGCN, STBlock
 
 
-<<<<<<< HEAD
-=======
 @dataclass(frozen=True)
 class ModelConfig:
     num_classes: int
@@ -25,7 +19,6 @@ class ModelConfig:
     use_lstm_for_optflow: bool = False
 
 
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 class FusionType(Enum):
     """Fusion types for combining branches"""
     CONCAT = "concat"
@@ -151,50 +144,6 @@ class LSTMBranch(BaseBranch):
 
 class MultiBranchFusion(nn.Module):
     """
-<<<<<<< HEAD
-    Flexible multi-branch architecture with different fusion methods
-    """
-    
-    def __init__(
-        self,
-        num_classes: int,
-        num_keypoints: int = 21,
-        temporal_length: int = 478,
-        dropout: float = 0.5,
-        fusion_type: Union[str, FusionType] = FusionType.CONCAT,
-        use_lstm_for_track: bool = False,
-        use_lstm_for_optflow: bool = False,
-    ):
-        super().__init__()
-        
-        # Convert string to enum
-        if isinstance(fusion_type, str):
-            fusion_type = FusionType(fusion_type)
-        self.fusion_type = fusion_type
-        
-        # Create Lk adjacency matrix
-        self.register_buffer('Lk', torch.eye(num_keypoints).unsqueeze(0))
-        
-        # STGCN config
-        self.stgcn_config = [[6, 64, 64], [64, 64, 128]]
-        
-        # ==================== CREATE BRANCHES ====================
-        self.branches = nn.ModuleDict()
-        self.branch_output_dims = {}
-        
-        # Branch 1: STGCN (always present)
-        self.branches['stgcn'] = STGCNBranch(
-            ks=1, kt=3,
-            n=num_keypoints,
-            channel_config=self.stgcn_config,
-            p=dropout,
-            Lk=self.Lk
-        )
-        self.branch_output_dims['stgcn'] = self.branches['stgcn'].output_dim
-        
-        # Branch 2: Optical Flow
-        if use_lstm_for_optflow:
-=======
     Flexible multi-branch architecture with different fusion methods.
     Accepts batch= with skeleton, motion, track, optflow (same as ST-GCN dataloader).
     """
@@ -235,64 +184,34 @@ class MultiBranchFusion(nn.Module):
 
         # Branch 2: Optical Flow
         if cfg.use_lstm_for_optflow:
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
             self.branches['optflow'] = LSTMBranch(
                 input_dim=6,
                 hidden_dim=128,
                 num_layers=2,
                 bidirectional=True,
-<<<<<<< HEAD
-                p=dropout
-=======
                 p=cfg.dropout
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
             )
         else:
             self.branches['optflow'] = TemporalCNNBranch(
                 input_dim=6,
                 hidden_dims=[32, 64, 128],
-<<<<<<< HEAD
-                p=dropout
-            )
-        self.branch_output_dims['optflow'] = self.branches['optflow'].output_dim
-        
-        # Branch 3: Track
-        if use_lstm_for_track:
-=======
                 p=cfg.dropout
             )
         self.branch_output_dims['optflow'] = self.branches['optflow'].output_dim
 
         # Branch 3: Track
         if cfg.use_lstm_for_track:
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
             self.branches['track'] = LSTMBranch(
                 input_dim=9,
                 hidden_dim=128,
                 num_layers=2,
                 bidirectional=True,
-<<<<<<< HEAD
-                p=dropout
-=======
                 p=cfg.dropout
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
             )
         else:
             self.branches['track'] = TemporalCNNBranch(
                 input_dim=9,
                 hidden_dims=[32, 64, 128],
-<<<<<<< HEAD
-                p=dropout
-            )
-        self.branch_output_dims['track'] = self.branches['track'].output_dim
-        
-        # ==================== FUSION MODULE ====================
-        self.fusion_module = self._create_fusion_module(fusion_type, dropout)
-        
-        # ==================== CLASSIFIER ====================
-        self.classifier = self._create_classifier(dropout, num_classes)
-        
-=======
                 p=cfg.dropout
             )
         self.branch_output_dims['track'] = self.branches['track'].output_dim
@@ -303,7 +222,6 @@ class MultiBranchFusion(nn.Module):
         # ==================== CLASSIFIER ====================
         self.classifier = self._create_classifier(cfg.dropout, cfg.num_classes)
 
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
     def _create_fusion_module(self, fusion_type: FusionType, dropout: float):
         """Create fusion module based on type"""
         
@@ -352,11 +270,6 @@ class MultiBranchFusion(nn.Module):
             nn.Linear(256, num_classes)
         )
     
-<<<<<<< HEAD
-    def forward(self, skeleton, motion, track, optflow):
-        """
-        Args:
-=======
     def forward(
         self,
         skeleton: Optional[torch.Tensor] = None,
@@ -368,37 +281,11 @@ class MultiBranchFusion(nn.Module):
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
         """
         Args (either positional or via batch=):
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
             skeleton: (B, 3, T, n)
             motion: (B, 3, T, n)
             track: (B, T, 9)
             optflow: (B, T, 6)
         Returns:
-<<<<<<< HEAD
-            logits: (B, num_classes)
-            Optional: attention weights or gates based on fusion type
-        """
-        
-        # Process each branch
-        branch_outputs = {}
-        
-        # STGCN branch
-        branch_outputs['stgcn'] = self.branches['stgcn'](skeleton, motion)
-        
-        # Optical flow branch
-        branch_outputs['optflow'] = self.branches['optflow'](optflow)
-        
-        # Track branch
-        branch_outputs['track'] = self.branches['track'](track)
-        
-        # Fusion
-        fused, aux_output = self.fusion_module(branch_outputs)
-        
-        # Classification
-        logits = self.classifier(fused)
-        
-        if aux_output is not None:
-=======
             logits: (B, num_classes). If fusion returns aux (e.g. attention), only logits for training.
         """
         if batch is not None:
@@ -430,7 +317,6 @@ class MultiBranchFusion(nn.Module):
         logits = self.classifier(fused)
 
         if aux_output is not None and batch is None:
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
             return logits, aux_output
         return logits
 
@@ -595,22 +481,6 @@ def create_model(
     num_keypoints: int = 21,
     temporal_length: int = 478,
     dropout: float = 0.5,
-<<<<<<< HEAD
-    **kwargs
-) -> nn.Module:
-    """
-    Factory function to create different model variants
-    
-    Args:
-        model_type: One of:
-            - "default": STGCNWithOptFlow (concat fusion, CNN branches)
-            - "attention": STGCNWithTrackOptFlowV2 (attention fusion, CNN branches)
-            - "lstm": STGCNWithLSTM (concat fusion, LSTM branches)
-            - "lstm_attention": STGCNWithLSTMAttention (attention fusion, LSTM branches)
-            - "lstm_gated": STGCNWithLSTMGatedFusion (gated fusion, LSTM branches)
-    """
-    
-=======
     **kwargs: Any,
 ) -> nn.Module:
     """
@@ -624,7 +494,6 @@ def create_model(
             - "lstm_attention": attention fusion, LSTM branches
             - "lstm_gated": gated fusion, LSTM branches
     """
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
     configs = {
         "default": {
             "fusion_type": FusionType.CONCAT,
@@ -650,17 +519,6 @@ def create_model(
             "fusion_type": FusionType.GATED,
             "use_lstm_for_track": True,
             "use_lstm_for_optflow": True,
-<<<<<<< HEAD
-        }
-    }
-    
-    if model_type not in configs:
-        raise ValueError(f"Unknown model type: {model_type}. Available: {list(configs.keys())}")
-    
-    config = configs[model_type]
-    
-    return MultiBranchFusion(
-=======
         },
     }
 
@@ -670,19 +528,12 @@ def create_model(
         )
 
     cfg = ModelConfig(
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
         num_classes=num_classes,
         num_keypoints=num_keypoints,
         temporal_length=temporal_length,
         dropout=dropout,
-<<<<<<< HEAD
-        **config,
-        **kwargs
-    )
-=======
         **configs[model_type],
         **{k: v for k, v in kwargs.items() if k in ModelConfig.__dataclass_fields__},
     )
     return MultiBranchFusion(cfg)
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 

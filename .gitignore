@@ -2,22 +2,6 @@
 .venv
 .mediapipe_models
 __pycache__/
-<<<<<<< HEAD
-uv.lock
-*.pt
-
-data/**
-!data/.gitkeep
-!data/processed/.gitkeep
-!data/raw/.gitkeep
-
-# Synthetic generation outputs (renders, caches)
-synthetic/**/out/
-synthetic/**/renders/
-synthetic/**/cache/
-
-models/**
-=======
 .docs/
 
 # Datasets (raw/processed) are large and must not be committed
@@ -39,4 +23,3 @@ doma/sessions/
 reports/*
 !reports/*.tex
 !reports/*.pdf
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140

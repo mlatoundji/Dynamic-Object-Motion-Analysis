@@ -3,8 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.nn.functional as F
-<<<<<<< HEAD
-=======
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -19,7 +17,6 @@ class ModelConfig:
     kt: int = 3
     channel_config: tuple = ((6, 64, 64), (64, 64, 128))
 
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 
 class Align(nn.Module):
     def __init__(self, c_in, c_out):
@@ -115,25 +112,6 @@ class STBlock(nn.Module):
 #         return self.fc(x_t2)
 
 class STGCN(nn.Module):
-<<<<<<< HEAD
-    def __init__(self, ks, kt, bs, T, n, Lk, p, num_classes):
-        super(STGCN, self).__init__()
-        self.st_conv1 = STBlock(ks, kt, n, bs[0], p, Lk)
-        self.st_conv2 = STBlock(ks, kt, n, bs[1], p, Lk)
-
-        final_c = bs[1][2]
-
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.classifier = nn.Linear(final_c, num_classes)
-
-    def forward(self, x):
-        x = self.st_conv1(x)
-        x = self.st_conv2(x)    # (B, C, 1, 1)
-
-        x = self.pool(x).squeeze(-1).squeeze(-1) # (B, C)
-        out = self.classifier(x) # (B, num_classes)
-        return out
-=======
     """
     ST-GCN for skeleton + motion. Accepts batch= with "skeleton" (B,3,T,n) and "motion" (B,3,T,n),
     or legacy forward(x) with x (B, 6, T, n).
@@ -174,5 +152,4 @@ class STGCN(nn.Module):
         x = self.st_conv2(x)
         x = self.pool(x).squeeze(-1).squeeze(-1)
         return self.classifier(x)
->>>>>>> b603b0b39f8dd89b44c3285762d9a54e443b2140
 

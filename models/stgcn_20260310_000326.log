@@ -1,0 +1,4 @@
+Run ID: stgcn_20260310_000326
+Device: cuda
+train_loss=2.4434 val_loss=2.2030 acc=0.3491 f1=0.0640
+Saved best checkpoint
